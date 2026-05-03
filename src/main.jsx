@@ -7,6 +7,7 @@ import {
   CheckCircle,
   ClipboardList,
   Download,
+  Flame,
   LogOut,
   Plus,
   Send,
@@ -96,14 +97,27 @@ function Dashboard({token,dash,reload,logout,err,loading,notify}){
  const tasks=dash.tasks||[]
  const people=dash.visible_users||[]
  const [newTaskId,setNewTaskId]=useState('')
+ const [applyingStrikes,setApplyingStrikes]=useState(false)
  const completed=tasks.filter(t=>t.status==='DONE').length
  const overdue=tasks.filter(isOverdue).length
- const topScore=Math.max(0,...[...(dash.founder_ranking||[]),...(dash.intern_ranking||[])].map(r=>r.score||0))
+ const scores=[...(dash.founder_ranking||[]),...(dash.intern_ranking||[])].map(r=>r.score||0)
+ const topScore=scores.length?Math.max(...scores):0
  const strikes=people.reduce((sum,u)=>sum+(u.strikes||0),0)
+ async function applyStrikesNow(){
+  setApplyingStrikes(true)
+  try{
+   const result=await rpc('apply_strikes_rpc',{p_token:token})
+   await reload()
+   notify(result.applied ? `Applied ${result.applied} strike${result.applied===1?'':'s'}` : 'No overdue strikes to apply')
+  }catch(ex){notify(ex.message,'error')}finally{setApplyingStrikes(false)}
+ }
  return <div className="app">
   <header className="top">
     <div><p className="eyebrow">Team operations</p><h1>Omnimate Monitor</h1><p className="muted">{me.name} · {me.title} · {displayRole(me.role)}</p></div>
-    <button className="btn ghost" onClick={logout}><LogOut size={18}/> Logout</button>
+    <div className="top-actions">
+      {me.role==='CEO'&&<button className="btn warn-btn" type="button" onClick={applyStrikesNow} disabled={applyingStrikes}><Flame size={18}/> {applyingStrikes?'Applying...':'Apply Strikes Now'}</button>}
+      <button className="btn ghost" onClick={logout}><LogOut size={18}/> Logout</button>
+    </div>
   </header>
   {err&&<div className="notice errorNotice">{err}</div>}{loading&&<p className="loading">Refreshing dashboard...</p>}
   <section className="section">
@@ -207,7 +221,8 @@ function Tasks({token,me,tasks,users,reload,notify,newTaskId}){
       <Badge tone={t.priority.toLowerCase()}>{t.priority}</Badge>
       <Badge><CalendarDays size={14}/> {niceDate(t.due_date)}</Badge>
       {overdue&&<Badge tone="overdue"><AlertTriangle size={14}/> Overdue</Badge>}
-      {(assignee.strikes||0)>=3&&<StrikeBadge strikes={assignee.strikes}/>}
+      {overdue&&t.strike_applied&&<Badge tone="warn">Strike applied</Badge>}
+      {(assignee.strikes||0)>0&&<StrikeBadge strikes={assignee.strikes}/>}
       <span className="small muted">{t.minutes||0}m logged</span>
     </div>
    </article>

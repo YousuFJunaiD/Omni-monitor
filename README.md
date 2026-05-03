@@ -35,6 +35,7 @@ Do not rerun `supabase/schema.sql` against a live database unless you intentiona
 For existing projects, apply only the non-destructive migration files you need from `supabase/`, such as:
 
 - `supabase/strike-system.sql`
+- `supabase/fix-strikes-score.sql`
 - `supabase/delete-task-rpc.sql`
 
 ## Build

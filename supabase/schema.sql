@@ -128,31 +128,44 @@ returns int language sql security definer set search_path=public as $$
   select coalesce(sum(case when t.status='DONE' then 60 when t.status='SUBMITTED' then 35 when t.status='IN_PROGRESS' then 10 else 0 end),0)::int
        + coalesce((select sum(minutes)/10 from time_logs where user_id=p_user),0)::int
        + coalesce((select count(*)*15 from proof_logs where user_id=p_user and is_submission=true),0)::int
+       - coalesce((select strikes * 25 from app_users where id=p_user),0)::int
   from tasks t where t.assigned_to=p_user;
 $$;
 
 create or replace function apply_strikes()
 returns void language plpgsql security definer set search_path=public as $$
+declare struck record;
 begin
-  with newly_overdue as (
+  for struck in
     update tasks
     set strike_applied = true
     where due_date < current_date
-      and status != 'DONE'
-      and strike_applied = false
-    returning assigned_to
-  ),
-  strike_counts as (
-    select assigned_to, count(*)::int as strike_count
-    from newly_overdue
-    group by assigned_to
-  )
-  update app_users u
-  set strikes = u.strikes + sc.strike_count
-  from strike_counts sc
-  where sc.assigned_to = u.id;
+      and status <> 'DONE'
+      and coalesce(strike_applied,false) = false
+    returning id, assigned_to, due_date, status
+  loop
+    update app_users set strikes = strikes + 1 where id = struck.assigned_to;
+    insert into audit_logs(actor_id, action, target_table, target_id, meta)
+    values(null, 'APPLY_STRIKE', 'tasks', struck.id, jsonb_build_object('assigned_to', struck.assigned_to, 'due_date', struck.due_date, 'status', struck.status));
+  end loop;
 end;
 $$;
+
+create or replace function apply_strikes_rpc(p_token text)
+returns jsonb language plpgsql security definer set search_path=public as $$
+declare me app_users; pending_count int;
+begin
+  select * into me from private_user_from_token(p_token);
+  if me.id is null then return jsonb_build_object('ok',false,'error','Unauthorized'); end if;
+  if me.role <> 'CEO' then return jsonb_build_object('ok',false,'error','CEO only'); end if;
+  select count(*)::int into pending_count
+  from tasks
+  where due_date < current_date
+    and status <> 'DONE'
+    and coalesce(strike_applied,false) = false;
+  perform apply_strikes();
+  return jsonb_build_object('ok',true,'applied',pending_count);
+end; $$;
 
 create or replace function get_dashboard(p_token text)
 returns jsonb language plpgsql security definer set search_path=public as $$
@@ -167,7 +180,7 @@ begin
     me.role='CEO' or (me.role='BOARD' and u.role='INTERN') or u.id=me.id
   );
 
-  select jsonb_agg(jsonb_build_object('id',t.id,'title',t.title,'details',t.details,'status',t.status,'priority',t.priority,'due_date',t.due_date,'assigned_to',u.name,'assigned_to_id',u.id,'assignee_role',u.role,'assignee_title',u.title,'created_at',t.created_at,'completed_at',t.completed_at,'minutes',coalesce((select sum(minutes) from time_logs where task_id=t.id),0))) into visible_tasks
+  select jsonb_agg(jsonb_build_object('id',t.id,'title',t.title,'details',t.details,'status',t.status,'priority',t.priority,'due_date',t.due_date,'strike_applied',t.strike_applied,'assigned_to',u.name,'assigned_to_id',u.id,'assignee_role',u.role,'assignee_title',u.title,'created_at',t.created_at,'completed_at',t.completed_at,'minutes',coalesce((select sum(minutes) from time_logs where task_id=t.id),0))) into visible_tasks
   from tasks t join app_users u on u.id=t.assigned_to
   where me.role='CEO' or (me.role='BOARD' and u.role='INTERN') or t.assigned_to=me.id;
 

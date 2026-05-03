@@ -38,6 +38,8 @@ label{font-weight:750;color:#dbe6f6}
 .btn.primary{background:var(--text);color:#09101b;border-color:var(--text)}
 .btn.primary:hover{background:#dce8f8}
 .btn.ghost{background:#101722}
+.warn-btn{color:#ffe8b0;border-color:#8a6a2d;background:#241b0d}
+.warn-btn:hover{background:#302411;border-color:#b58a37}
 .icon-btn{width:44px;height:44px;border-radius:8px;border:1px solid #334156;background:#182231;color:var(--text);display:grid;place-items:center;cursor:pointer}
 .icon-btn:hover{border-color:#51647f;background:#202c3d}
 .icon-btn:disabled{cursor:not-allowed;opacity:.55}
@@ -45,6 +47,7 @@ label{font-weight:750;color:#dbe6f6}
 .danger-btn:hover{background:#321822;border-color:#a84256}
 .app{max-width:1500px;margin:0 auto;padding:28px}
 .top{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:20px}
+.top-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .eyebrow{margin:0 0 6px;color:var(--accent);font-size:12px;text-transform:uppercase;font-weight:900;letter-spacing:.14em}
 .loading{color:var(--accent);font-weight:750}
 .section{margin:18px 0}
@@ -110,6 +113,8 @@ label{font-weight:750;color:#dbe6f6}
 @media(max-width:700px){
   .app{padding:18px}
   .top,.task-main,.section-title{align-items:flex-start;flex-direction:column}
+  .top-actions{width:100%;justify-content:stretch}
+  .top-actions .btn{width:100%}
   .task-actions{width:100%}
   .stats,.two-col,.proof-controls,.row{grid-template-columns:1fr}
   .login h1,.top h1{font-size:28px}

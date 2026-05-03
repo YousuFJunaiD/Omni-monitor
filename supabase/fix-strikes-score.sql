@@ -1,5 +1,6 @@
--- Non-destructive strike-system migration for an existing Supabase project.
--- Run this in Supabase SQL Editor if you do not want to rerun schema.sql.
+-- Non-destructive strike and score hardening migration.
+-- Run this in Supabase SQL Editor for an existing project.
+-- This does not drop tables, reset data, or require service-role keys in the frontend.
 
 alter table app_users add column if not exists strikes int default 0;
 update app_users set strikes = 0 where strikes is null;
