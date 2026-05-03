@@ -28,6 +28,7 @@ h1,h2,h3,p{margin-top:0}
 .error{color:#ffc2cb}
 .input,select,textarea{width:100%;background:#090f18;color:var(--text);border:1px solid #2a3548;border-radius:8px;padding:12px 13px;font-size:15px;outline:none}
 .input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px #8fe3c022}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.drop:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 textarea{min-height:100px;resize:vertical}
 label{font-weight:750;color:#dbe6f6}
 .field{display:grid;gap:8px}
@@ -54,7 +55,7 @@ label{font-weight:750;color:#dbe6f6}
 .section-title{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}
 .section-title h2{display:flex;align-items:center;gap:10px;margin:0;font-size:19px}
 .section-title svg{width:20px;height:20px;color:var(--accent)}
-.stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.stats{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
 .stat{padding:18px;display:flex;gap:13px;align-items:center}
 .stat-icon{width:40px;height:40px;display:grid;place-items:center;border-radius:8px;background:#1b2637;color:var(--accent)}
 .stat b{font-size:27px;display:block;line-height:1}
@@ -77,13 +78,17 @@ label{font-weight:750;color:#dbe6f6}
 .badge.submitted{border-color:#8a6a2d;color:#ffdf91}
 .badge.done{border-color:#2f7b4b;color:#a7f3bd}
 .badge.blocked,.badge.overdue,.badge.warn{background:var(--danger-bg);border-color:#9b3447;color:#ffd1d8}
+.badge.pending{border-color:#5c6c84;color:#d6e0ee}
+.badge.under_review{border-color:#8a6a2d;color:#ffdf91}
+.badge.approved{border-color:#2f7b4b;color:#a7f3bd}
+.badge.rejected{background:var(--danger-bg);border-color:#9b3447;color:#ffd1d8}
 .badge.high{border-color:#8a6a2d;color:#ffdf91}
 .badge.urgent{background:#32151d;border-color:#b34355;color:#ffd1d8}
 .badge.medium{border-color:#43617e}
 .badge.low{border-color:#386b56;color:#abf0cf}
 .badge.fresh{background:#123226;border-color:#2b8763;color:#bfffe1}
 .badge.strike{margin-top:8px}
-.task{border:1px solid var(--line);border-radius:8px;padding:16px;margin-top:12px;background:linear-gradient(180deg,#0e1621,#0b111a)}
+.task,.idea-card{border:1px solid var(--line);border-radius:8px;padding:16px;margin-top:12px;background:linear-gradient(180deg,#0e1621,#0b111a)}
 .task.new-task{border-color:#55c99d;box-shadow:0 0 0 1px #55c99d33,0 12px 30px #0005}
 .task.overdue{border-color:#713340}
 .task-main{display:flex;justify-content:space-between;gap:14px;align-items:flex-start}
@@ -92,8 +97,16 @@ label{font-weight:750;color:#dbe6f6}
 .task h3{margin:0;font-size:18px}
 .task p{margin:8px 0 0;line-height:1.5}
 .task-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.subsection{margin-top:18px}
+.subsection h3{margin-bottom:8px}
+.filter-row{max-width:260px;margin:16px 0}
+.idea-form{margin-bottom:8px}
+.idea-actions{display:flex;gap:8px;flex-wrap:wrap}
+.decision-controls{display:grid;gap:10px;margin-top:14px}
+.decision-note{margin:12px 0 0;padding:12px;border-left:3px solid var(--accent);background:#0a1019;color:#dbe6f6}
 .status-select{width:auto;min-width:155px}
 .drop{border:1px dashed #53627a;border-radius:8px;padding:22px;text-align:center;background:#0a1019;margin:14px 0;display:grid;gap:8px;place-items:center}
+.drop:hover,.drop:focus-visible{border-color:var(--accent);background:#0d1722}
 .drop svg{color:var(--accent)}
 .drop input{width:min(280px,100%);font-size:13px}
 .drop img,.feedItem img{max-width:100%;border-radius:8px;margin-top:8px;border:1px solid #34415b}

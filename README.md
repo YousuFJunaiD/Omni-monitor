@@ -36,6 +36,8 @@ For existing projects, apply only the non-destructive migration files you need f
 
 - `supabase/strike-system.sql`
 - `supabase/fix-strikes-score.sql`
+- `supabase/founder-intern-management.sql`
+- `supabase/idea-board.sql`
 - `supabase/delete-task-rpc.sql`
 
 ## Build
