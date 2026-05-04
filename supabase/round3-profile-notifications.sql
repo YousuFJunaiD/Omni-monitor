@@ -316,3 +316,5 @@ grant execute on function dismiss_notification_rpc(text, uuid) to anon, authenti
 grant execute on function get_person_profile(text, uuid) to anon, authenticated;
 grant execute on function get_notifications(text, int, boolean) to anon, authenticated;
 grant execute on function get_dashboard(text) to anon, authenticated;
+
+-- End of Round 3 migration.
