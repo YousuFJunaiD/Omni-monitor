@@ -4,6 +4,7 @@
 --       update_avatar_rpc; get_person_profile RPC.
 -- Modifies: get_dashboard (preserves all existing keys, adds avatar_data_url to me/visible_users/proof_feed/ideas/tasks).
 -- Does not modify: any other existing function, any existing table beyond the avatar column.
+-- Full SQL implementation is intentionally kept in this single migration file.
 
 alter table app_users add column if not exists avatar_data_url text;
 
