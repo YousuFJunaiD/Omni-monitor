@@ -31,8 +31,8 @@ const TopBar = memo(function TopBar({onOpenTask}) {
   return (
     <header className="top-bar">
       <div className="top-bar-title">
-        <span className="brand-mark" aria-hidden="true">OM</span>
-        <span>Omnimate Monitor</span>
+        <span>Operations</span>
+        <small>{user?.role || 'Workspace'}</small>
       </div>
       <GlobalSearch onOpenTask={onOpenTask} />
       <div className="top-bar-actions">

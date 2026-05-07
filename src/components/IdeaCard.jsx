@@ -1,5 +1,5 @@
-import {Lightbulb, MessageCircle, TrendingUp} from 'lucide-react'
-import { memo, useMemo, useState } from 'react'
+import {Clock3, Lightbulb, MessageCircle, TrendingUp, User2} from 'lucide-react'
+import { memo, useMemo } from 'react'
 import Badge from './Badge'
 
 function getIdeaStatus(idea) {
@@ -7,20 +7,34 @@ function getIdeaStatus(idea) {
 }
 
 function getVoteCount(idea) {
-  const count = idea?.votes ?? idea?.vote_count ?? idea?.score ?? 0
+  const count = idea?.vote_count ?? idea?.votes ?? idea?.score ?? 0
   return Number.isFinite(Number(count)) ? Number(count) : 0
+}
+
+function getDiscussionCount(idea) {
+  const count = idea?.discussion_count ?? idea?.comment_count ?? idea?.comments_count ?? 0
+  return Number.isFinite(Number(count)) ? Number(count) : 0
+}
+
+function formatIdeaDate(value) {
+  if (!value) return ''
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ''
+  return new Intl.DateTimeFormat(undefined, {month: 'short', day: 'numeric'}).format(parsed)
+}
+
+function formatStatus(status) {
+  return String(status || 'PENDING').replace(/_/g, ' ').toLowerCase().replace(/^\w/, char => char.toUpperCase())
 }
 
 const IdeaCard = memo(function IdeaCard({ idea, className = '', ...props }) {
   const isInteractive = typeof props.onClick === 'function'
-  const [voted, setVoted] = useState(false)
-  const [comment, setComment] = useState('')
-  const [notes, setNotes] = useState([])
-  const voteCount = getVoteCount(idea) + (voted ? 1 : 0)
+  const voteCount = getVoteCount(idea)
   const status = getIdeaStatus(idea)
-  const owner = idea?.owner_name || idea?.created_by_name || idea?.author || idea?.owner || 'Team idea'
-  const discussionCount = notes.length + Number(idea?.comment_count || idea?.comments_count || 0)
+  const owner = idea?.submitted_by_name || idea?.owner_name || idea?.created_by_name || idea?.author || idea?.owner || 'Team idea'
+  const discussionCount = getDiscussionCount(idea)
   const isTrending = voteCount >= 3 || discussionCount >= 2
+  const createdAt = formatIdeaDate(idea?.created_at || idea?.createdAt)
   const statusClass = useMemo(() => {
     const normalized = String(status).toLowerCase()
     if (normalized.includes('approved') || normalized.includes('active')) return 'task-priority-low'
@@ -40,39 +54,22 @@ const IdeaCard = memo(function IdeaCard({ idea, className = '', ...props }) {
         <span className="idea-symbol" aria-hidden="true"><Lightbulb size={18} /></span>
         <div>
           <h3>{idea?.title || idea?.name || 'Untitled idea'}</h3>
-          <p className="muted">Owned by {owner}</p>
+          <p className="muted">Submitted by {owner}</p>
         </div>
-        <Badge className={statusClass}>{status}</Badge>
+        <Badge className={statusClass}>{formatStatus(status)}</Badge>
       </div>
       <p className="idea-card-copy">{idea?.description || idea?.summary || 'Idea details unavailable.'}</p>
       <div className="idea-signal-row">
-        <button type="button" className={voted ? 'is-active' : ''} onClick={() => setVoted(current => !current)}>
+        <span>
           <TrendingUp size={15} />
           {voteCount} votes
-        </button>
+        </span>
         <span><MessageCircle size={15} /> {discussionCount} comments</span>
+        <span><User2 size={15} /> {idea?.submitted_by_role || 'Team'}</span>
+        {createdAt && <span><Clock3 size={15} /> {createdAt}</span>}
         {isTrending && <Badge className="task-priority-medium">Trending</Badge>}
       </div>
-      <form className="idea-discussion-form" onSubmit={event => {
-        event.preventDefault()
-        const body = comment.trim()
-        if (!body) return
-        setNotes(current => [{id: Date.now(), body}, ...current])
-        setComment('')
-      }}>
-        <input
-          aria-label="Add idea discussion note"
-          value={comment}
-          onChange={event => setComment(event.target.value)}
-          placeholder="Add a discussion note"
-        />
-        <button type="submit">Add</button>
-      </form>
-      {notes.length > 0 && (
-        <div className="idea-notes">
-          {notes.slice(0, 2).map(note => <p key={note.id}>{note.body}</p>)}
-        </div>
-      )}
+      {idea?.decision_note && <p className="idea-decision-note">{idea.decision_note}</p>}
     </article>
   )
 })

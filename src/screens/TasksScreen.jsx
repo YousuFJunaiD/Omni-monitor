@@ -220,6 +220,9 @@ export default function TasksScreen() {
                 tasks={filteredTasks}
                 movingTaskId={movingTaskId}
                 onOpenTask={handleOpenTask}
+                onEditTask={handleEditTask}
+                onDeleteTask={handleDeleteTask}
+                onAssignTask={handleEditTask}
                 onMoveTask={handleMoveTask}
               />
             </Suspense>

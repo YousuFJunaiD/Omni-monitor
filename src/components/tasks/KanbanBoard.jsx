@@ -1,11 +1,10 @@
 import {memo, useCallback, useMemo, useState} from 'react'
+import {ExternalLink, Pencil, Trash2, UserPlus} from 'lucide-react'
 import Badge from '../Badge'
 import EmptyState from '../EmptyState'
-import StatusPill from '../StatusPill'
 import {getStatusVariant} from '../../lib/utils'
 import {
   formatDueLabel,
-  formatTaskStatus,
   getDueDateClass,
   getPriorityClass,
   TASK_STATUS_LABELS
@@ -38,6 +37,9 @@ const KanbanTaskCard = memo(function KanbanTaskCard({
   grabbed,
   moving,
   onOpen,
+  onEdit,
+  onDelete,
+  onAssign,
   onDragStart,
   onDragEnd,
   onMove,
@@ -47,6 +49,7 @@ const KanbanTaskCard = memo(function KanbanTaskCard({
 }) {
   const dueDateValue = task?.due_date || task?.dueDate
   const dueLabel = formatDueLabel(dueDateValue, task?.status)
+  const dueClass = getDueDateClass(dueDateValue, task?.status)
   const previousStatus = getAdjacentStatus(task?.status, -1)
   const nextStatus = getAdjacentStatus(task?.status, 1)
 
@@ -95,14 +98,45 @@ const KanbanTaskCard = memo(function KanbanTaskCard({
       onKeyDown={handleKeyDown}
     >
       <div className="kanban-task-top">
-        <StatusPill variant={getStatusVariant(task?.status)}>{formatTaskStatus(task?.status)}</StatusPill>
         <Badge className={getPriorityClass(task?.priority)}>{task?.priority || 'MEDIUM'}</Badge>
+        {dueLabel && <Badge className={dueClass || 'kanban-due-future'}>{dueLabel}</Badge>}
       </div>
       <h3>{task?.title || 'Untitled task'}</h3>
       <p>{task?.description || task?.details || 'No task description.'}</p>
       <div className="kanban-task-meta">
         <span>{task?.assignee?.name || task?.assigned_to || 'Unassigned'}</span>
-        {dueLabel && <span className={getDueDateClass(dueDateValue, task?.status)}>{dueLabel}</span>}
+      </div>
+      <div className="kanban-quick-actions" aria-label="Task quick actions">
+        <button type="button" aria-label="Open task" onClick={event => {
+          event.stopPropagation()
+          onOpen(task)
+        }}>
+          <ExternalLink size={15} />
+        </button>
+        {onEdit && (
+          <button type="button" aria-label="Edit task" onClick={event => {
+            event.stopPropagation()
+            onEdit(task)
+          }}>
+            <Pencil size={15} />
+          </button>
+        )}
+        {onAssign && (
+          <button type="button" aria-label="Assign task" onClick={event => {
+            event.stopPropagation()
+            onAssign(task)
+          }}>
+            <UserPlus size={15} />
+          </button>
+        )}
+        {onDelete && (
+          <button type="button" aria-label="Delete task" className="danger" onClick={event => {
+            event.stopPropagation()
+            onDelete(task)
+          }}>
+            <Trash2 size={15} />
+          </button>
+        )}
       </div>
       <div className="kanban-mobile-moves" aria-label="Move task">
         <button type="button" disabled={!previousStatus || moving} onClick={event => {
@@ -128,6 +162,9 @@ const KanbanColumn = memo(function KanbanColumn({
   active,
   movingTaskId,
   onOpen,
+  onEdit,
+  onDelete,
+  onAssign,
   onDropTask,
   onDragStart,
   onDragEnd,
@@ -149,7 +186,7 @@ const KanbanColumn = memo(function KanbanColumn({
           <h2>{TASK_STATUS_LABELS[status] || status}</h2>
           <p>{tasks.length} tasks</p>
         </div>
-        <StatusPill variant={getStatusVariant(status)}>{formatTaskStatus(status)}</StatusPill>
+        <span className={`kanban-column-dot status-${getStatusVariant(status)}`} aria-hidden="true" />
       </div>
       <div className="kanban-column-list">
         {tasks.length === 0 ? (
@@ -162,6 +199,9 @@ const KanbanColumn = memo(function KanbanColumn({
               grabbed={grabbedTaskId === task?.id}
               moving={movingTaskId === task?.id}
               onOpen={onOpen}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onAssign={onAssign}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
               onMove={onMove}
@@ -175,7 +215,7 @@ const KanbanColumn = memo(function KanbanColumn({
   )
 })
 
-export default function KanbanBoard({tasks = [], onOpenTask, onMoveTask, movingTaskId}) {
+export default function KanbanBoard({tasks = [], onOpenTask, onEditTask, onDeleteTask, onAssignTask, onMoveTask, movingTaskId}) {
   const [draggedTask, setDraggedTask] = useState(null)
   const [hoverStatus, setHoverStatus] = useState('')
   const [grabbedTaskId, setGrabbedTaskId] = useState('')
@@ -233,6 +273,9 @@ export default function KanbanBoard({tasks = [], onOpenTask, onMoveTask, movingT
           active={hoverStatus === status}
           movingTaskId={movingTaskId}
           onOpen={onOpenTask}
+          onEdit={onEditTask}
+          onDelete={onDeleteTask}
+          onAssign={onAssignTask || onEditTask}
           onDropTask={handleDropTask}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}

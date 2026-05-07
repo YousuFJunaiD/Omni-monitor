@@ -159,13 +159,26 @@
   font-weight: 650;
   min-height: 44px;
   padding: var(--space-2) var(--space-3);
+  position: relative;
   text-decoration: none;
   transition: background 150ms ease, color 150ms ease, transform 150ms ease;
 }
 
 .nav-item.active {
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--accent-soft) 62%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
   color: var(--text);
+}
+
+.nav-item.active::before {
+  background: var(--accent);
+  border-radius: var(--radius-pill);
+  bottom: 10px;
+  content: "";
+  left: 0;
+  position: absolute;
+  top: 10px;
+  width: 3px;
 }
 
 .card,
@@ -491,8 +504,9 @@
 
 .task-priority-high {
   background: var(--danger-soft);
-  border-color: color-mix(in srgb, var(--danger) 34%, var(--line));
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--line));
   color: var(--danger);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 .task-priority-medium {
@@ -1347,8 +1361,8 @@ textarea.field-control {
 
 .kanban-board {
   display: grid;
-  gap: var(--space-3);
-  grid-auto-columns: minmax(250px, 1fr);
+  gap: var(--space-2);
+  grid-auto-columns: minmax(238px, 1fr);
   grid-auto-flow: column;
   min-height: 420px;
   overflow-x: auto;
@@ -1360,12 +1374,12 @@ textarea.field-control {
 .kanban-column {
   background: color-mix(in srgb, var(--surface-2) 72%, var(--surface));
   border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   min-height: 380px;
-  padding: var(--space-3);
+  padding: var(--space-2);
   scroll-snap-align: start;
   transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
 }
@@ -1373,7 +1387,7 @@ textarea.field-control {
 .kanban-column.is-drop-target {
   background: color-mix(in srgb, var(--accent-soft) 42%, var(--surface));
   border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent), var(--shadow-sm);
 }
 
 .kanban-column-header {
@@ -1384,7 +1398,7 @@ textarea.field-control {
 }
 
 .kanban-column-header h2 {
-  font-size: 0.98rem;
+  font-size: 0.9rem;
 }
 
 .kanban-column-header p {
@@ -1397,6 +1411,7 @@ textarea.field-control {
 .kanban-column-list {
   display: grid;
   gap: var(--space-2);
+  min-height: 260px;
 }
 
 .kanban-empty,
@@ -1426,8 +1441,9 @@ textarea.field-control {
   box-shadow: var(--shadow-sm);
   cursor: grab;
   display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3);
+  gap: 7px;
+  padding: var(--space-2);
+  position: relative;
   transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
   user-select: none;
 }
@@ -1437,6 +1453,13 @@ textarea.field-control {
   border-color: var(--line-strong);
   box-shadow: var(--shadow-md);
   transform: translateY(-2px);
+}
+
+.kanban-task:hover .kanban-quick-actions,
+.kanban-task:focus-within .kanban-quick-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .kanban-task:active {
@@ -1462,8 +1485,12 @@ textarea.field-control {
   justify-content: space-between;
 }
 
+.kanban-task-top {
+  padding-right: 120px;
+}
+
 .kanban-task h3 {
-  font-size: 0.94rem;
+  font-size: 0.9rem;
   line-height: 1.25;
 }
 
@@ -1471,7 +1498,7 @@ textarea.field-control {
   color: var(--text-muted);
   display: -webkit-box;
   font-size: 13px;
-  line-height: 1.35;
+  line-height: 1.3;
   margin: 0;
   overflow: hidden;
   -webkit-box-orient: vertical;
@@ -1484,10 +1511,59 @@ textarea.field-control {
   font-weight: 750;
 }
 
-.kanban-task-meta .task-due-overdue,
-.kanban-task-meta .task-due-soon {
+.kanban-column-dot {
+  background: currentColor;
   border-radius: var(--radius-pill);
-  padding: 3px 7px;
+  height: 10px;
+  width: 10px;
+}
+
+.kanban-due-future {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.kanban-quick-actions {
+  align-items: center;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  padding: 2px;
+  pointer-events: none;
+  position: absolute;
+  right: var(--space-2);
+  top: var(--space-2);
+  transform: translateY(-4px);
+  transition: opacity 150ms ease, transform 150ms ease;
+  z-index: 2;
+}
+
+.kanban-quick-actions button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.kanban-quick-actions button:hover,
+.kanban-quick-actions button:focus-visible {
+  background: var(--surface-2);
+  color: var(--text);
+  outline: 0;
+}
+
+.kanban-quick-actions .danger {
+  color: var(--danger);
 }
 
 .kanban-mobile-moves {
@@ -1532,7 +1608,7 @@ textarea.field-control {
 
 .ideas-layout {
   align-items: start;
-  grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.45fr);
 }
 
 .idea-grid {
@@ -1542,6 +1618,33 @@ textarea.field-control {
 .ideas-spotlight {
   background: linear-gradient(135deg, var(--brand-warm-soft), var(--surface) 72%);
   border-color: color-mix(in srgb, var(--brand-warm) 28%, var(--line));
+}
+
+.idea-health-grid {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.idea-health-grid div {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 4px;
+  padding: var(--space-3);
+}
+
+.idea-health-grid strong {
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.idea-health-grid span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .trending-ideas article {
@@ -1582,8 +1685,12 @@ textarea.field-control {
 
 .idea-card-copy {
   color: var(--text-muted);
+  display: -webkit-box;
   line-height: 1.45;
   margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
 
 .idea-signal-row {
@@ -1593,7 +1700,6 @@ textarea.field-control {
   gap: var(--space-2);
 }
 
-.idea-signal-row button,
 .idea-signal-row span,
 .idea-discussion-form button {
   align-items: center;
@@ -1609,48 +1715,7 @@ textarea.field-control {
   padding: 0 var(--space-3);
 }
 
-.idea-signal-row button {
-  cursor: pointer;
-}
-
-.idea-signal-row button.is-active {
-  background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
-  color: var(--accent);
-}
-
-.idea-discussion-form {
-  display: grid;
-  gap: var(--space-2);
-  grid-template-columns: 1fr auto;
-}
-
-.idea-discussion-form input {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  min-height: 38px;
-  padding: 0 var(--space-3);
-}
-
-.idea-discussion-form input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
-  outline: 0;
-}
-
-.idea-discussion-form button {
-  border-radius: var(--radius-md);
-  color: var(--text);
-  cursor: pointer;
-}
-
-.idea-notes {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.idea-notes p {
+.idea-decision-note {
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -1658,7 +1723,7 @@ textarea.field-control {
   font-size: 13px;
   line-height: 1.4;
   margin: 0;
-  padding: var(--space-2);
+  padding: var(--space-3);
 }
 
 .profile-actions {
@@ -1864,6 +1929,18 @@ textarea.field-control {
 
   .kanban-mobile-moves {
     display: flex;
+  }
+
+  .kanban-quick-actions {
+    opacity: 1;
+    pointer-events: auto;
+    position: static;
+    transform: none;
+    width: max-content;
+  }
+
+  .kanban-task-top {
+    padding-right: 0;
   }
 
   .task-form-grid,

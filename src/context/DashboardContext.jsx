@@ -1,6 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { getDashboard, clearDashboardCache } from '../services/dashboardService'
 import {
+  normalizeIdea,
+  submitIdea as submitIdeaRPC
+} from '../services/ideaService'
+import {
   addTaskComment as addTaskCommentRPC,
   createTask as createTaskRPC,
   deleteTask as deleteTaskRPC,
@@ -39,7 +43,7 @@ function normalizeDashboard(dashboard) {
     tasks: taskList,
     tasksById,
     taskIds,
-    ideas: asArray(source?.ideas || source?.idea_list),
+    ideas: asArray(source?.ideas || source?.idea_list).map(normalizeIdea),
     visibleUsers: asArray(source?.visible_users || source?.users),
   }
 }
@@ -233,6 +237,43 @@ export function DashboardProvider({ children }) {
   const ideas = normalized.ideas
   const visibleUsers = normalized.visibleUsers
 
+  const createIdea = useCallback(async input => {
+    const optimisticId = `optimistic-idea-${Date.now()}`
+    const optimisticIdea = normalizeIdea({
+      id: optimisticId,
+      title: input?.title,
+      description: input?.description,
+      status: 'PENDING',
+      submitted_by_name: me?.name || 'You',
+      submitted_by_role: me?.role,
+      created_at: new Date().toISOString(),
+      optimistic: true
+    })
+
+    setData(current => {
+      const source = asObject(current)
+      return {
+        ...source,
+        ideas: [optimisticIdea, ...asArray(source?.ideas || source?.idea_list).map(normalizeIdea)]
+      }
+    })
+
+    try {
+      const result = await submitIdeaRPC(input)
+      refresh()
+      return result
+    } catch (err) {
+      setData(current => {
+        const source = asObject(current)
+        return {
+          ...source,
+          ideas: asArray(source?.ideas || source?.idea_list).filter(idea => idea?.id !== optimisticId)
+        }
+      })
+      throw err
+    }
+  }, [me?.name, me?.role, refresh])
+
   const value = useMemo(() => ({
     data: normalized.raw,
     dashboard: normalized.raw,
@@ -250,8 +291,9 @@ export function DashboardProvider({ children }) {
     updateTaskStatus,
     updateTask,
     deleteTask,
-    addTaskComment
-  }), [normalized.raw, me, user, tasks, tasksById, taskIds, ideas, visibleUsers, loading, error, refresh, createTask, updateTaskStatus, updateTask, deleteTask, addTaskComment])
+    addTaskComment,
+    createIdea
+  }), [normalized.raw, me, user, tasks, tasksById, taskIds, ideas, visibleUsers, loading, error, refresh, createTask, updateTaskStatus, updateTask, deleteTask, addTaskComment, createIdea])
 
   return (
     <DashboardContext.Provider value={value}>
