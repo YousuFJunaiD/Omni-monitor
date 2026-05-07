@@ -1,0 +1,6 @@
+[33m8185d7e[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m add round 3 backend migration SQL
+[33m4252ee0[m Add round 3 profile notifications migration
+[33m2424636[m add founder intern management and idea board
+[33md8bb21b[m fix strikes and add handover docs
+[33m6fee775[m secure commit
+[33m3a0fc27[m initial commit

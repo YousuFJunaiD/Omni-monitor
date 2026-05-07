@@ -1,0 +1,10 @@
+export const TOKEN_KEY = 'omnimate_session_token'
+
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function logout() {
+  localStorage.removeItem(TOKEN_KEY)
+  window.location.reload()
+}
