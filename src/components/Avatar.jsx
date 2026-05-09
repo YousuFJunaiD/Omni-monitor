@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { getInitials, getAvatarTone } from '../lib/utils'
+import { getInitials, getAvatarTone, roleLabel } from '../lib/utils'
 import Button from './Button'
 
 export default function Avatar({ user = {}, size = 40, showMenu = false, onLogout }) {
@@ -63,7 +63,7 @@ export default function Avatar({ user = {}, size = 40, showMenu = false, onLogou
         <div className="avatar-dropdown">
           <div className="avatar-dropdown-header">
             <p className="avatar-dropdown-name">{name}</p>
-            <p className="avatar-dropdown-role">{safeUser?.role || safeUser?.title || 'Member'}</p>
+            <p className="avatar-dropdown-role">{safeUser?.title || roleLabel(safeUser?.role) || 'Member'}</p>
           </div>
           <hr className="avatar-dropdown-divider" />
           <nav className="avatar-dropdown-nav">

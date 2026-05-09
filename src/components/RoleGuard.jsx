@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import {roleLabel} from '../lib/utils'
 import EmptyState from './EmptyState'
 
 export default function RoleGuard({ allowedRoles, children }) {
@@ -23,7 +24,7 @@ export default function RoleGuard({ allowedRoles, children }) {
       <main className="screen">
         <EmptyState
           title="Access Denied"
-          description={`This page is only available to users with the following roles: ${roles.join(', ') || 'No data available'}.`}
+          description={`This page is only available to users with the following roles: ${roles.map(roleLabel).filter(Boolean).join(', ') || 'No data available'}.`}
         />
       </main>
     )

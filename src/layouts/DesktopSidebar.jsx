@@ -2,6 +2,7 @@ import {memo} from 'react'
 import {Home, Layers3, Lightbulb, MoreHorizontal, Users} from 'lucide-react'
 import {NavLink} from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import {roleLabel} from '../lib/utils'
 
 const baseItems = [
   ['Home', '/home', Home],
@@ -28,7 +29,7 @@ const DesktopSidebar = memo(function DesktopSidebar() {
       <div className="workspace-card">
         <span>Workspace</span>
         <strong>Operations Monitor</strong>
-        <small>{user?.name || 'Team workspace'}{role ? ` - ${role}` : ''}</small>
+        <small>{user?.name || 'Team workspace'}{role ? ` - ${roleLabel(role)}` : ''}</small>
       </div>
       <nav className="side-nav" aria-label="Primary">
         {items.map(([label, to, Icon]) => (

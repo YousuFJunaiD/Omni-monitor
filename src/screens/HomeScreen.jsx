@@ -225,7 +225,7 @@ export default function HomeScreen() {
             </section>
             <section className="panel workflow-lanes-panel">
               <div className="section-title">
-                <h2>Operations board</h2>
+                <h2>Operations overview</h2>
               </div>
               <div className="workflow-lanes">
                 {workflowSections.map(([label, sectionTasks]) => (

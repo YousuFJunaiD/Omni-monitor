@@ -6,6 +6,7 @@ import IconButton from '../components/IconButton'
 import NotificationsPanel from '../components/NotificationsPanel'
 import {useAuth} from '../context/AuthContext'
 import {useTheme} from '../lib/theme'
+import {roleLabel} from '../lib/utils'
 
 const TopBar = memo(function TopBar({onOpenTask}) {
   const {theme, toggleTheme} = useTheme()
@@ -32,7 +33,7 @@ const TopBar = memo(function TopBar({onOpenTask}) {
     <header className="top-bar">
       <div className="top-bar-title">
         <span>Operations</span>
-        <small>{user?.role || 'Workspace'}</small>
+        <small>{roleLabel(user?.role) || 'Workspace'}</small>
       </div>
       <GlobalSearch onOpenTask={onOpenTask} />
       <div className="top-bar-actions">

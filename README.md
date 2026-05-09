@@ -6,10 +6,10 @@ Internal monitoring dashboard for Omnimate team operations.
 
 - Username and password login
 - Supabase RPC-backed dashboard
-- Role-based visibility for CEO, Board, Founders, and Interns
+- Role-based visibility for CEO, Founding Members, and Interns
 - Task assignment, status updates, deletion, deadlines, overdue indicators, and strikes
 - Screenshot paste/upload proof feed
-- Founder and intern rankings
+- Founding Member and Intern rankings
 - Weekly and monthly report downloads
 
 ## Local Setup
@@ -39,6 +39,7 @@ For existing projects, apply only the non-destructive migration files you need f
 - `supabase/founder-intern-management.sql`
 - `supabase/idea-board.sql`
 - `supabase/delete-task-rpc.sql`
+- `supabase/round6-add-developer-interns.sql`
 
 ## Build
 

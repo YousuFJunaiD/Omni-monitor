@@ -1,6 +1,7 @@
 import {Clock3, Lightbulb, MessageCircle, TrendingUp, User2} from 'lucide-react'
 import { memo, useMemo } from 'react'
 import Badge from './Badge'
+import {roleLabel} from '../lib/utils'
 
 function getIdeaStatus(idea) {
   return idea?.status || idea?.stage || idea?.decision_status || 'Open'
@@ -65,7 +66,7 @@ const IdeaCard = memo(function IdeaCard({ idea, className = '', ...props }) {
           {voteCount} votes
         </span>
         <span><MessageCircle size={15} /> {discussionCount} comments</span>
-        <span><User2 size={15} /> {idea?.submitted_by_role || 'Team'}</span>
+        <span><User2 size={15} /> {roleLabel(idea?.submitted_by_role) || 'Team'}</span>
         {createdAt && <span><Clock3 size={15} /> {createdAt}</span>}
         {isTrending && <Badge className="task-priority-medium">Trending</Badge>}
       </div>

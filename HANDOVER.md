@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Omnimate Monitor is a private operations dashboard for assigning tasks, collecting proof, tracking work, reviewing ideas, ranking founders/interns, and generating CEO reports. The app uses username/password login backed by Supabase RPC functions. Frontend access is through the Supabase anon key only; table access is blocked with RLS and all app behavior goes through RPC.
+Omnimate Monitor is a private operations dashboard for assigning tasks, collecting proof, tracking work, reviewing ideas, ranking Founding Members/Interns, and generating CEO reports. The app uses username/password login backed by Supabase RPC functions. Frontend access is through the Supabase anon key only; table access is blocked with RLS and all app behavior goes through RPC.
 
 ## Tech Stack
 
@@ -20,10 +20,11 @@ Omnimate Monitor is a private operations dashboard for assigning tasks, collecti
 - `src/supabase.js`: Supabase client setup.
 - `supabase/schema.sql`: Full reset/fresh-install schema. Do not run on production unless intentionally resetting.
 - `supabase/fix-strikes-score.sql`: Non-destructive strike/score fix for existing databases.
-- `supabase/founder-intern-management.sql`: Non-destructive Founder-to-Intern task visibility and assignment migration.
+- `supabase/founder-intern-management.sql`: Non-destructive Founding Member-to-Intern task visibility and assignment migration.
 - `supabase/idea-board.sql`: Non-destructive idea board table, enum, RPCs, and dashboard payload migration.
 - `supabase/strike-system.sql`: Existing non-destructive strike migration, kept updated.
 - `supabase/delete-task-rpc.sql`: Non-destructive task deletion RPC migration.
+- `supabase/round6-add-developer-interns.sql`: Non-destructive developer intern account insertion migration.
 - `.env.example`: Required frontend environment variables.
 - `vercel.json`: Vercel SPA routing/build output config.
 
@@ -43,30 +44,29 @@ Never commit `.env.local`. Never expose or use the Supabase service role key in 
 - `login_user(p_username, p_password)`: validates username/password and creates a session token.
 - `logout_user(p_token)`: deletes the session token.
 - `get_dashboard(p_token)`: validates the session, applies overdue strikes, and returns visible users, tasks, rankings, proof feed, and ideas.
-- `create_task_rpc(p_token, p_title, p_details, p_assigned_to, p_priority, p_due_date)`: CEO/Board/Founder task assignment with RBAC.
+- `create_task_rpc(p_token, p_title, p_details, p_assigned_to, p_priority, p_due_date)`: CEO/Founding Member task assignment with RBAC.
 - `update_task_status_rpc(p_token, p_task_id, p_status)`: updates task status with RBAC.
-- `delete_task_rpc(p_token, p_task_id)`: CEO/Board deletion for allowed tasks.
+- `delete_task_rpc(p_token, p_task_id)`: CEO/Founding Member deletion for allowed tasks.
 - `add_log_rpc(p_token, p_task_id, p_note, p_minutes, p_screenshot_data_url, p_is_submission)`: adds proof/time logs and optionally marks a task as submitted.
 - `get_report_rpc(p_token, p_period)`: CEO-only weekly/monthly report payload.
 - `score_for_user(p_user)`: calculates score, including strike penalties.
 - `apply_strikes()`: applies overdue strikes idempotently.
 - `apply_strikes_rpc(p_token)`: CEO-only manual strike sweep used by the dashboard button.
 - `submit_idea_rpc(p_token, p_title, p_description)`: authenticated idea submission.
-- `update_idea_status_rpc(p_token, p_idea_id, p_status, p_decision_note)`: CEO/Board idea decision RPC.
+- `update_idea_status_rpc(p_token, p_idea_id, p_status, p_decision_note)`: CEO/Founding Member idea decision RPC.
 - `delete_idea_rpc(p_token, p_idea_id)`: submitter pending delete or CEO delete.
 
 ## Roles And RBAC
 
-- `CEO`: sees all active users, all tasks, all rankings, reports, delete controls, and the manual `Apply Strikes Now` button.
-- `BOARD`: can see interns, assign/delete intern tasks, and update allowed intern tasks.
-- `FOUNDER`: sees own tasks, all intern tasks, intern submissions, own founder ranking, and intern ranking. Founders can assign tasks only to interns and cannot see other founders' tasks.
-- `INTERN`: sees own tasks/ranking and can submit proof/logs.
+- `CEO`: visible as CEO. Sees all active users, all tasks, all rankings, reports, delete controls, and the manual `Apply Strikes Now` button.
+- `FOUNDER`: visible as Founding Member. Sees own tasks, all intern tasks, intern submissions, own ranking, and intern ranking. Founding Members can assign tasks only to interns and cannot see other Founding Members' tasks.
+- `INTERN`: visible as Intern. Sees own tasks/ranking and can submit proof/logs.
 
 RLS is enabled on tables and there are no broad table policies. The frontend should only use the anon key and RPC functions.
 
 ## Adding Users Or Interns
 
-Add users directly in Supabase SQL Editor. Pick one of the allowed roles: `CEO`, `BOARD`, `FOUNDER`, `INTERN`.
+Add users directly in Supabase SQL Editor. Pick one of the allowed roles: `CEO`, `FOUNDER`, `INTERN`. `BOARD` may exist as a legacy/internal enum value but should not be shown in the UI.
 
 ```sql
 insert into app_users(name, username, password_hash, role, title)
@@ -79,7 +79,7 @@ values (
 );
 ```
 
-Usernames must match `^[a-z0-9_]{3,40}$`. Have the user change the temporary password after first login by asking an admin to run the reset SQL below.
+Usernames must match `^[a-z0-9_.]{3,40}$` after the round 6 intern migration. Have the user change the temporary password after first login by asking an admin to run the reset SQL below.
 
 ## Resetting Passwords
 
@@ -113,14 +113,14 @@ Scores can be negative. Example: 0 normal points and 1 strike equals `-25`.
 
 For existing databases, run `supabase/fix-strikes-score.sql` once in Supabase SQL Editor. Do not rerun `supabase/schema.sql` on live data.
 
-## Idea Board
+## Ideas
 
 Run these in order for existing databases:
 
 1. `supabase/founder-intern-management.sql`
 2. `supabase/idea-board.sql`
 
-Any authenticated user can submit an idea. CEO and Board can see all ideas, Founders can see their own plus approved/in-progress ideas, and Interns can see only their own. Board can decide Intern ideas only. CEO can decide or delete any idea. Submitters can delete their own idea only while it is `PENDING`.
+Any authenticated user can submit an idea. CEO and Founding Members can see all allowed ideas, Founding Members can see their own plus approved/in-progress ideas, and Interns can see only their own. Founding Members can decide Intern ideas only. CEO can decide or delete any idea. Submitters can delete their own idea only while it is `PENDING`.
 
 ## Deploying On Vercel
 

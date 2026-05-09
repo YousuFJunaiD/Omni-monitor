@@ -257,14 +257,14 @@ export default function KanbanBoard({tasks = [], onOpenTask, onEditTask, onDelet
   if (!tasks.length) {
     return (
       <EmptyState
-        title="No tasks match this board view."
+        title="No tasks match this Kanban view."
         description="Adjust the filters to bring work back into the Kanban lanes."
       />
     )
   }
 
   return (
-    <div className="kanban-board" aria-label="Task Kanban board">
+    <div className="kanban-board" aria-label="Task Kanban">
       {KANBAN_STATUSES.map(status => (
         <KanbanColumn
           key={status}

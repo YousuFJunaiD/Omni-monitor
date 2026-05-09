@@ -102,9 +102,11 @@ function timeAgo(dateStr) {
 }
 
 function displayRole(role) {
-  if (role === 'CEO') return 'CEO'
-  if (role === 'FOUNDER') return 'Founder'
-  return role || ''
+  const normalized = String(role || '').trim().toUpperCase()
+  if (normalized === 'CEO') return 'CEO'
+  if (normalized === 'FOUNDER' || normalized === 'BOARD') return 'Founding Member'
+  if (normalized === 'INTERN') return 'Intern'
+  return role ? String(role).replace(/_/g, ' ').toLowerCase().replace(/^\w/, char => char.toUpperCase()) : ''
 }
 
 function displayStatusBadge(status) {
@@ -823,7 +825,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
             </div>
           )}
 
-          {/* INTERN TASKS I MANAGE — for founder/board/CEO */}
+          {/* Intern work managed by leadership */}
           {internManagedTasks.length > 0 && (
             <div className="task-section">
               <div className="task-section-head">
@@ -1195,7 +1197,7 @@ function AssignModal({ token, users, me, onClose, onCreated, notify }) {
               onChange={e => setF({ ...f, assigned_to: e.target.value })}>
               <option value="">Select assignee...</option>
               {assignableUsers.map(u => (
-                <option key={u.id} value={u.id}>{u.name} — {u.title} ({u.role})</option>
+                <option key={u.id} value={u.id}>{u.name} — {u.title} ({displayRole(u.role)})</option>
               ))}
             </select>
           </div>
@@ -1279,7 +1281,7 @@ function IdeasTab({ dash, token, me, reload, notify }) {
     <div className="tab-ideas">
       <div className="page-header">
         <div>
-          <p className="page-eyebrow">Idea board</p>
+          <p className="page-eyebrow">Ideas</p>
           <h1 className="page-title">Ideas</h1>
         </div>
       </div>
@@ -1499,7 +1501,7 @@ function TeamTab({ dash, token, me, reload, notify }) {
       {/* Rankings */}
       {founderRank.length > 0 && me.role !== 'INTERN' && (
         <div className="panel ranking-panel">
-          <SectionHead icon={<Trophy size={16} />} title="Founder Rankings" />
+          <SectionHead icon={<Trophy size={16} />} title="Founding Member Rankings" />
           <div className="ranking-list">
             {founderRank.map(r => (
               <div key={r.id} className={`rank-row ${r.strikes >= 3 ? 'rank-danger' : ''}`}>
@@ -1616,7 +1618,7 @@ function MoreTab({ dash, token, me, reload, notify }) {
                 <div className="report-best">
                   {report.best_founder && (
                     <div className="best-item">
-                      <span className="best-label">Best Founder</span>
+                      <span className="best-label">Best Founding Member</span>
                       <span className="best-name">{report.best_founder.name}</span>
                       <span className="best-score">{report.best_founder.score} pts</span>
                     </div>

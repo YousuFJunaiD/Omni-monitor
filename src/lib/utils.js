@@ -26,7 +26,15 @@ export function getStatusVariant(status) {
 
 // Get title/role with fallback
 export function getTitle(user = {}) {
-  return user?.title || user?.role || 'Team member'
+  return user?.title || roleLabel(user?.role) || 'Team member'
+}
+
+export function roleLabel(role) {
+  const normalized = String(role || '').trim().toUpperCase()
+  if (normalized === 'CEO') return 'CEO'
+  if (normalized === 'FOUNDER' || normalized === 'BOARD') return 'Founding Member'
+  if (normalized === 'INTERN') return 'Intern'
+  return role ? String(role).replace(/_/g, ' ').toLowerCase().replace(/^\w/, char => char.toUpperCase()) : ''
 }
 
 // Get user name with fallback

@@ -2,7 +2,7 @@ import {useAuth} from '../context/AuthContext'
 import {useDashboardContext} from '../context/DashboardContext'
 import Avatar from '../components/Avatar'
 import Badge from '../components/Badge'
-import { getTitle } from '../lib/utils'
+import {roleLabel} from '../lib/utils'
 
 export default function MoreScreen() {
   const { user, role } = useAuth()
@@ -11,7 +11,6 @@ export default function MoreScreen() {
   const hasDashboardUser = me && typeof me === 'object' && !Array.isArray(me) && Object.keys(me).length > 0
   const rawUser = hasDashboardUser ? me : user
   const displayUser = rawUser && typeof rawUser === 'object' && !Array.isArray(rawUser) ? rawUser : {}
-  const title = getTitle(displayUser)
 
   return (
     <>
@@ -25,10 +24,10 @@ export default function MoreScreen() {
           <div>
             <p className="eyebrow">Profile</p>
             <h2>{displayUser?.name || 'User profile'}</h2>
-            <p className="muted">{role || displayUser?.role || 'Role unavailable'}</p>
+            <p className="muted">{roleLabel(role || displayUser?.role) || 'Role unavailable'}</p>
             {displayUser?.title && <p className="muted">{displayUser?.title}</p>}
             <div className="role-row">
-              <span className="badge role-badge">{role || displayUser?.role || 'General'}</span>
+              <span className="badge role-badge">{roleLabel(role || displayUser?.role) || 'General'}</span>
             </div>
           </div>
           <Avatar user={displayUser} size={80} />

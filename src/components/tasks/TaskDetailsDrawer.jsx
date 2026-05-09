@@ -4,7 +4,7 @@ import Badge from '../Badge'
 import StatusPill from '../StatusPill'
 import Skeleton from '../Skeleton'
 import {TASK_STATUSES, getActivityTimeline, getTaskById, getTaskComments} from '../../services/taskService'
-import {getStatusVariant} from '../../lib/utils'
+import {getStatusVariant, roleLabel} from '../../lib/utils'
 import TaskCommentList from './TaskCommentList'
 import TaskActivityTimeline from './TaskActivityTimeline'
 import TaskActionMenu from './TaskActionMenu'
@@ -102,7 +102,7 @@ export default function TaskDetailsDrawer({
 
   const meta = useMemo(() => ([
     ['Assignee', task?.assignee?.name || task?.assigned_to || 'Unassigned'],
-    ['Assignee role', task?.assignee?.title || task?.assignee?.role || 'Team member'],
+    ['Assignee role', task?.assignee?.title || roleLabel(task?.assignee?.role) || 'Team member'],
     ['Creator', task?.creator?.name || task?.assigned_by || 'Unknown'],
     ['Due date', formatLongDate(task?.due_date)],
     ['Priority', task?.priority || 'MEDIUM']

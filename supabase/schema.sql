@@ -22,7 +22,7 @@ create type task_priority as enum ('LOW','MEDIUM','HIGH','URGENT');
 create table app_users (
   id uuid primary key default gen_random_uuid(),
   name text not null,
-  username text unique not null check (username ~ '^[a-z0-9_]{3,40}$'),
+  username text unique not null check (username ~ '^[a-z0-9_.]{3,40}$'),
   password_hash text not null,
   role app_role not null,
   title text not null,

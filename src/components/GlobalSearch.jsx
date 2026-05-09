@@ -2,6 +2,7 @@ import {Search, X} from 'lucide-react'
 import {useDeferredValue, useEffect, useMemo, useRef, useState} from 'react'
 import {useNavigate} from 'react-router-dom'
 import {useDashboardContext} from '../context/DashboardContext'
+import {roleLabel} from '../lib/utils'
 
 function normalize(value) {
   return String(value || '').trim().toLowerCase()
@@ -135,7 +136,7 @@ export default function GlobalSearch({onOpenTask}) {
                   {results.users.map(user => (
                     <button key={user.id || user.name} type="button" onClick={() => openRoute('/team')}>
                       <span>{user.name || 'Team member'}</span>
-                      <small>{user.title || user.role || 'Contributor'}</small>
+                      <small>{user.title || roleLabel(user.role) || 'Contributor'}</small>
                     </button>
                   ))}
                 </section>
@@ -146,7 +147,7 @@ export default function GlobalSearch({onOpenTask}) {
                   {results.ideas.map(idea => (
                     <button key={idea.id || idea.title || idea.name} type="button" onClick={() => openRoute('/ideas')}>
                       <span>{idea.title || idea.name || 'Untitled idea'}</span>
-                      <small>{idea.summary || idea.description || 'Idea board'}</small>
+                      <small>{idea.summary || idea.description || 'Idea pipeline'}</small>
                     </button>
                   ))}
                 </section>

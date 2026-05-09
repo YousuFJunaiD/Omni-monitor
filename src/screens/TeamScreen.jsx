@@ -4,6 +4,7 @@ import EmptyState from '../components/EmptyState'
 import OperationalActivityFeed from '../components/OperationalActivityFeed'
 import ScreenLoader from '../components/ScreenLoader'
 import {useDashboardContext} from '../context/DashboardContext'
+import {roleLabel} from '../lib/utils'
 
 function isDone(task) {
   return String(task?.status || '').toUpperCase() === 'DONE'
@@ -112,7 +113,7 @@ export default function TeamScreen() {
                     <Avatar user={user} size={48} />
                     <div>
                       <h3>{user?.name || 'Team member'}</h3>
-                      <p className="muted">{user?.title || user?.role || 'Contributor'}</p>
+                      <p className="muted">{user?.title || roleLabel(user?.role) || 'Contributor'}</p>
                     </div>
                     <Badge className={userStats.blocked || userStats.overdue ? 'task-priority-high' : 'role-badge'}>{loadLevel}</Badge>
                   </div>

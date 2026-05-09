@@ -180,7 +180,7 @@ export default function TasksScreen() {
               ))}
             </div>
             <div className="segmented-control compact-control" role="group" aria-label="Task view">
-              <button type="button" className={viewMode === 'BOARD' ? 'is-active' : ''} onClick={() => setViewMode('BOARD')}>Board</button>
+              <button type="button" className={viewMode === 'BOARD' ? 'is-active' : ''} onClick={() => setViewMode('BOARD')}>Kanban</button>
               <button type="button" className={viewMode === 'LIST' ? 'is-active' : ''} onClick={() => setViewMode('LIST')}>List</button>
             </div>
             <div className="filter-selects">
@@ -215,7 +215,7 @@ export default function TasksScreen() {
             <span>{filteredTasks.length} of {safeTasks.length} tasks shown</span>
           </div>
           {viewMode === 'BOARD' ? (
-            <Suspense fallback={<div className="kanban-skeleton" aria-label="Loading board" />}>
+            <Suspense fallback={<div className="kanban-skeleton" aria-label="Loading Kanban" />}>
               <KanbanBoard
                 tasks={filteredTasks}
                 movingTaskId={movingTaskId}

@@ -12,7 +12,7 @@ import {useNotify} from '../lib/notify'
 import useAsync from '../lib/useAsync'
 import {useDashboardContext} from '../context/DashboardContext'
 import {getProfile, updateAvatar} from '../services/profileService'
-import { dataUrlBytes, getStatusVariant } from '../lib/utils'
+import { dataUrlBytes, getStatusVariant, roleLabel } from '../lib/utils'
 
 function loadImage(dataUrl) {
   return new Promise((resolve, reject) => {
@@ -181,9 +181,9 @@ export default function ProfileScreen() {
               <div>
                 <p className="eyebrow">Workspace identity</p>
                 <h2>{person?.name || 'Unnamed profile'}</h2>
-                <p className="muted">{person?.title || person?.role || 'Role unavailable'}</p>
+                <p className="muted">{person?.title || roleLabel(person?.role) || 'Role unavailable'}</p>
                 <div className="profile-badge-row">
-                  <Badge className="role-badge">{person?.role || 'Member'}</Badge>
+                  <Badge className="role-badge">{roleLabel(person?.role) || 'Member'}</Badge>
                   <Badge>Score {person?.score ?? 'Unavailable'}</Badge>
                 </div>
               </div>

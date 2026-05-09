@@ -36,8 +36,8 @@ export default function IdeasScreen() {
       <header className="screen-header">
         <div className="top">
           <div>
-            <p className="eyebrow">Idea board</p>
-            <h1>Innovation board</h1>
+            <p className="eyebrow">Ideas</p>
+            <h1>Innovation pipeline</h1>
             <p className="muted">Capture product opportunities, evaluate tradeoffs, and keep emerging bets visible before they become work.</p>
           </div>
           <Button variant="primary" onClick={() => setCreateOpen(true)}>
@@ -51,7 +51,7 @@ export default function IdeasScreen() {
         error={error}
         isEmpty={safeIdeas.length === 0}
         emptyTitle="Start the first product conversation."
-        emptyDescription="Capture one opportunity, assign an owner, and use the board to decide whether it deserves execution time."
+        emptyDescription="Capture one opportunity, assign an owner, and decide whether it deserves execution time."
         emptyAction={<Button variant="primary" onClick={() => setCreateOpen(true)}><Plus size={17} />Submit Idea</Button>}
         onRetry={refresh}
       >
