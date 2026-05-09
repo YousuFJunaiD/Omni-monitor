@@ -116,6 +116,84 @@ function priorityClass(p) {
   return { LOW: 'low', MEDIUM: 'medium', HIGH: 'high', URGENT: 'urgent' }[p] || 'medium'
 }
 
+function arrayFromRpc(result, keys = []) {
+  if (Array.isArray(result)) return result
+  if (!result || typeof result !== 'object') return []
+
+  for (const key of keys) {
+    if (Array.isArray(result[key])) return result[key]
+  }
+
+  if (result.data && typeof result.data === 'object') {
+    const nested = arrayFromRpc(result.data, keys)
+    if (nested.length) return nested
+  }
+
+  return []
+}
+
+function objectFromRpc(result) {
+  if (!result || typeof result !== 'object') return null
+  if (result.data && typeof result.data === 'object' && !Array.isArray(result.data)) return result.data
+  return result
+}
+
+function normalizeTaskForUi(task) {
+  const safe = task && typeof task === 'object' && !Array.isArray(task) ? task : {}
+  return {
+    ...safe,
+    id: safe.id || '',
+    title: safe.title || safe.name || 'Untitled task',
+    details: safe.details ?? safe.description ?? '',
+    status: String(safe.status || 'TODO').toUpperCase().replace(/[\s-]+/g, '_'),
+    priority: String(safe.priority || 'MEDIUM').toUpperCase(),
+    due_date: safe.due_date || safe.dueDate || '',
+    created_at: safe.created_at || safe.createdAt || '',
+    assigned_to_id: safe.assigned_to_id || safe.assignee_id || safe.assignee?.id || '',
+    assigned_to: safe.assigned_to || safe.assigned_to_name || safe.assignee?.name || 'Unassigned',
+    assignee_role: safe.assignee_role || safe.assigned_to_role || safe.assignee?.role || '',
+    assigned_by_id: safe.assigned_by_id || safe.creator?.id || '',
+    assigned_by_name: safe.assigned_by_name || safe.assigned_by || safe.creator?.name || '',
+    comments: Array.isArray(safe.comments) ? safe.comments : [],
+    proofs: Array.isArray(safe.proofs) ? safe.proofs : []
+  }
+}
+
+class TabErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error) {
+    console.error('Tab render error:', error)
+  }
+
+  componentDidUpdate(previousProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false })
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="tasks-empty">
+          <AlertCircle size={32} className="tasks-empty-icon" />
+          <b>{this.props.message || 'Unable to load this section.'}</b>
+          <p>Please refresh or contact admin.</p>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
+
 // ─── Toast ───────────────────────────────────────────────────────────────────
 
 function Toast({ message, type = 'success', onDismiss }) {
@@ -284,11 +362,13 @@ function App() {
       <main className="app-content">
         {err && <div className="notice notice-error">{err}</div>}
         {loading && <div className="loading-bar"><span /></div>}
-        {tab === 'home'   && <HomeTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
-        {tab === 'tasks' && <TasksTab  dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
-        {tab === 'ideas' && <IdeasTab  dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
-        {tab === 'team'  && <TeamTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
-        {tab === 'more'  && <MoreTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
+        <TabErrorBoundary resetKey={tab} message={tab === 'tasks' ? 'Unable to load tasks.' : 'Unable to load this section.'}>
+          {tab === 'home'   && <HomeTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
+          {tab === 'tasks' && <TasksTab  dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
+          {tab === 'ideas' && <IdeasTab  dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
+          {tab === 'team'  && <TeamTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
+          {tab === 'more'  && <MoreTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
+        </TabErrorBoundary>
       </main>
       {toast && <Toast message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />}
     </div>
@@ -506,13 +586,19 @@ const LAST_LOGIN_KEY = 'omnimate_last_login'
 function TasksTab({ dash, token, me, reload, notify }) {
   const [tasks, setTasks] = useState([])
   const [tasksLoading, setTasksLoading] = useState(false)
+  const [taskError, setTaskError] = useState('')
   const [q, setQ] = useState('')
   const [showCompleted, setShowCompleted] = useState(false)
+  const [showAssign, setShowAssign] = useState(false)
   const [selectedTask, setSelectedTask] = useState(null)
   const [deletingId, setDeletingId] = useState('')
   const [taskDetail, setTaskDetail] = useState(null)
 
-  const userById = useMemo(() => Object.fromEntries((dash.visible_users || []).map(u => [u.id, u])), [dash.visible_users])
+  const safeDash = dash || emptyDash
+  const safeMe = me || {}
+  const visibleUsers = Array.isArray(safeDash.visible_users) ? safeDash.visible_users : []
+  const safeTasks = Array.isArray(tasks) ? tasks : []
+  const userById = useMemo(() => Object.fromEntries(visibleUsers.filter(Boolean).map(u => [u.id, u])), [visibleUsers])
 
   // Track last login time for "new task" detection
   const lastLogin = useMemo(() => {
@@ -525,16 +611,28 @@ function TasksTab({ dash, token, me, reload, notify }) {
   }, [token])
 
   useEffect(() => {
+    let cancelled = false
     setTasksLoading(true)
+    setTaskError('')
     rpc('get_tasks_rpc', { p_token: token })
-      .then(data => setTasks(data.tasks || []))
-      .catch(() => setTasks([]))
-      .finally(() => setTasksLoading(false))
+      .then(data => {
+        if (!cancelled) setTasks(arrayFromRpc(data, ['tasks', 'task_list', 'items']).map(normalizeTaskForUi))
+      })
+      .catch(ex => {
+        if (!cancelled) {
+          setTaskError(ex?.message || 'Unable to load tasks. Please refresh or contact admin.')
+          setTasks([])
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTasksLoading(false)
+      })
+    return () => { cancelled = true }
   }, [token])
 
   // Apply search + filter on all tasks
-  const searchFiltered = tasks.filter(t => {
-    if (q && !`${t.title} ${t.details}`.toLowerCase().includes(q.toLowerCase())) return false
+  const searchFiltered = safeTasks.filter(t => {
+    if (q && !`${t?.title || ''} ${t?.details || ''}`.toLowerCase().includes(q.toLowerCase())) return false
     return true
   })
 
@@ -579,16 +677,17 @@ function TasksTab({ dash, token, me, reload, notify }) {
   const overdueTasks = sorted.filter(t => isOverdue(t) && t.status !== 'DONE')
   const dueSoonTasks = sorted.filter(t => !isOverdue(t) && isDueSoon(t) && t.status !== 'DONE')
   const openTasks = sorted.filter(t => t.status !== 'DONE' && !isOverdue(t) && !isDueSoon(t) && !(t.created_at && new Date(t.created_at) > lastLoginDate))
-  const internManagedTasks = me.role !== 'INTERN'
-    ? sorted.filter(t => t.assignee_role === 'INTERN' && t.assigned_to_id !== me.id)
+  const internManagedTasks = safeMe.role !== 'INTERN'
+    ? sorted.filter(t => t.assignee_role === 'INTERN' && t.assigned_to_id !== safeMe.id)
     : []
   const completedTasks = sorted.filter(t => t.status === 'DONE')
 
   async function openTask(task) {
+    if (!task?.id) return
     setSelectedTask(task)
     try {
       const detail = await rpc('get_task_by_id_rpc', { p_token: token, p_task_id: task.id })
-      setTaskDetail(detail)
+      setTaskDetail(normalizeTaskForUi(objectFromRpc(detail)))
     } catch { setTaskDetail(null) }
   }
 
@@ -596,17 +695,18 @@ function TasksTab({ dash, token, me, reload, notify }) {
     try {
       await rpc('update_task_status_rpc', { p_token: token, p_task_id: taskId, p_status: status })
       const data = await rpc('get_tasks_rpc', { p_token: token })
-      setTasks(data.tasks || [])
+      setTasks(arrayFromRpc(data, ['tasks', 'task_list', 'items']).map(normalizeTaskForUi))
       if (selectedTask?.id === taskId) {
         const detail = await rpc('get_task_by_id_rpc', { p_token: token, p_task_id: taskId }).catch(() => null)
-        if (detail) setTaskDetail(detail)
+        if (detail) setTaskDetail(normalizeTaskForUi(objectFromRpc(detail)))
       }
       notify('Status updated')
     } catch (ex) { notify(ex.message, 'error') }
   }
 
   async function deleteTask(task) {
-    if (!window.confirm(`Delete "${task.title}"?`)) return
+    if (!task?.id) return
+    if (!window.confirm(`Delete "${task.title || 'this task'}"?`)) return
     setDeletingId(task.id)
     try {
       await rpc('delete_task_rpc', { p_token: token, p_task_id: task.id })
@@ -618,9 +718,9 @@ function TasksTab({ dash, token, me, reload, notify }) {
   }
 
   function canManage(task) {
-    return me.role === 'CEO'
-      || (me.role === 'BOARD' && task.assignee_role === 'INTERN')
-      || (me.role === 'FOUNDER' && task.assignee_role === 'INTERN' && task.assigned_by_id === me.id)
+    return safeMe.role === 'CEO'
+      || (safeMe.role === 'BOARD' && task?.assignee_role === 'INTERN')
+      || (safeMe.role === 'FOUNDER' && task?.assignee_role === 'INTERN' && task?.assigned_by_id === safeMe.id)
   }
 
   return (
@@ -638,6 +738,10 @@ function TasksTab({ dash, token, me, reload, notify }) {
           <Plus size={16} /> New Task
         </button>
       </div>
+
+      {taskError && (
+        <div className="notice notice-error">Unable to load tasks. Please refresh or contact admin.</div>
+      )}
 
       {/* Search */}
       <div className="task-search-wrap">
@@ -660,7 +764,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
                 <span className="task-section-count">{newTasks.length}</span>
               </div>
               {newTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={me} onOpen={() => openTask(t)}
+                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
                   onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
                   isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
                   isNew lastLoginDate={lastLoginDate} />
@@ -678,7 +782,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
                 <span className="task-section-count">{overdueTasks.length}</span>
               </div>
               {overdueTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={me} onOpen={() => openTask(t)}
+                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
                   onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
                   isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
                   isOverdue />
@@ -696,7 +800,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
                 <span className="task-section-count">{dueSoonTasks.length}</span>
               </div>
               {dueSoonTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={me} onOpen={() => openTask(t)}
+                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
                   onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
                   isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
                   isDueSoon />
@@ -712,7 +816,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
                 <span className="task-section-count">{openTasks.length}</span>
               </div>
               {openTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={me} onOpen={() => openTask(t)}
+                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
                   onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
                   isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id} />
               ))}
@@ -727,7 +831,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
                 <span className="task-section-count">{internManagedTasks.length}</span>
               </div>
               {internManagedTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={me} onOpen={() => openTask(t)}
+                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
                   onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
                   isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
                   isManagedIntern />
@@ -746,7 +850,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
                 </div>
               </button>
               {showCompleted && completedTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={me} onOpen={() => openTask(t)}
+                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
                   onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
                   isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
                   isDone />
@@ -770,7 +874,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
           <TaskDetailPanel
             task={selectedTask}
             detail={taskDetail}
-            me={me}
+            me={safeMe}
             token={token}
             onClose={() => { setSelectedTask(null); setTaskDetail(null) }}
             onStatusChange={(s) => setStatus(selectedTask.id, s)}
@@ -788,14 +892,15 @@ function TasksTab({ dash, token, me, reload, notify }) {
       {showAssign && (
         <AssignModal
           token={token}
-          users={dash.visible_users || []}
-          me={me}
+          users={visibleUsers}
+          me={safeMe}
           onClose={() => setShowAssign(false)}
           onCreated={async (taskId) => {
             setShowAssign(false)
             const data = await rpc('get_tasks_rpc', { p_token: token })
-            setTasks(data.tasks || [])
-            const t = (data.tasks || []).find(t => t.id === taskId)
+            const nextTasks = arrayFromRpc(data, ['tasks', 'task_list', 'items']).map(normalizeTaskForUi)
+            setTasks(nextTasks)
+            const t = nextTasks.find(t => t.id === taskId)
             if (t) openTask(t)
             notify('Task created')
           }}
@@ -809,8 +914,11 @@ function TasksTab({ dash, token, me, reload, notify }) {
 // ─── Task Row ────────────────────────────────────────────────────────────────
 
 function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isDeleting, isSelected, isNew, isOverdue, isDueSoon, isManagedIntern, isDone, me }) {
-  const assignee = userById[task.assigned_to_id] || {}
-  const isForMe = task.assigned_to_id === me.id
+  const safeTask = normalizeTaskForUi(task)
+  const safeMe = me || {}
+  const assignee = userById[safeTask.assigned_to_id] || { name: safeTask.assigned_to, strikes: 0 }
+  const isForMe = safeTask.assigned_to_id === safeMe.id
+  const statusLabel = String(safeTask.status || 'TODO').replace('_', ' ')
 
   return (
     <div
@@ -826,12 +934,12 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
       onClick={onOpen}
     >
       {/* Priority stripe */}
-      <div className={`task-priority-stripe stripe-${priorityClass(task.priority).toLowerCase()}`} />
+      <div className={`task-priority-stripe stripe-${priorityClass(safeTask.priority).toLowerCase()}`} />
 
       {/* Main content */}
       <div className="task-row-body">
         <div className="task-row-top">
-          <span className="task-row-title">{task.title}</span>
+          <span className="task-row-title">{safeTask.title}</span>
           {canManage && (
             <button className="task-row-delete" onClick={e => { e.stopPropagation(); onDelete() }}
               disabled={isDeleting} aria-label="Delete">
@@ -843,35 +951,35 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
         <div className="task-row-meta">
           {/* Assignee */}
           <span className={`task-row-person ${isForMe ? 'is-me' : ''}`}>
-            {isForMe ? 'Me' : assignee.name}
-            {task.assigned_by_name && <span className="task-row-assigned-by"> from {task.assigned_by_name}</span>}
+            {isForMe ? 'Me' : (assignee.name || safeTask.assigned_to || 'Unassigned')}
+            {safeTask.assigned_by_name && <span className="task-row-assigned-by"> from {safeTask.assigned_by_name}</span>}
           </span>
 
           {/* Badges row */}
           <div className="task-row-badges">
-            <Badge variant={`badge-${displayStatusBadge(task.status)}`}>{task.status.replace('_', ' ')}</Badge>
-            <Badge variant={`badge-${priorityClass(task.priority)}`}>{task.priority}</Badge>
+            <Badge variant={`badge-${displayStatusBadge(safeTask.status)}`}>{statusLabel}</Badge>
+            <Badge variant={`badge-${priorityClass(safeTask.priority)}`}>{safeTask.priority}</Badge>
           </div>
 
           {/* Due date */}
-          {task.due_date && (
+          {safeTask.due_date && (
             <span className={`task-row-date ${isOverdue ? 'date-overdue' : isDueSoon ? 'date-soon' : ''}`}>
-              <CalendarDays size={11} /> {niceDate(task.due_date)}
+              <CalendarDays size={11} /> {niceDate(safeTask.due_date)}
             </span>
           )}
 
           {/* State labels */}
           {isNew && <span className="task-row-new-badge">New</span>}
           {isOverdue && <span className="task-row-overdue-badge">Overdue</span>}
-          {assignee.strikes > 0 && <StrikeBadge count={assignee.strikes} />}
+          {Number(assignee.strikes) > 0 && <StrikeBadge count={assignee.strikes} />}
         </div>
       </div>
 
       {/* Status quick-change */}
       {isForMe && !isDone && (
         <select className="task-row-status"
-          value={task.status}
-          onChange={e => { e.stopPropagation(); onSetStatus(task.id, e.target.value) }}
+          value={safeTask.status}
+          onChange={e => { e.stopPropagation(); onSetStatus(safeTask.id, e.target.value) }}
           onClick={e => e.stopPropagation()}>
           <option>TODO</option><option>IN_PROGRESS</option><option>SUBMITTED</option><option>DONE</option><option>BLOCKED</option>
         </select>
@@ -881,21 +989,23 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
 }
 
 function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onDelete, notify }) {
+  const safeTask = normalizeTaskForUi(detail || task)
+  const safeMe = me || {}
   const [comment, setComment] = useState('')
   const [submittingComment, setSubmittingComment] = useState(false)
-  const [comments, setComments] = useState(detail?.comments || [])
+  const [comments, setComments] = useState(Array.isArray(detail?.comments) ? detail.comments : [])
   const [activity, setActivity] = useState([])
 
   // Load activity timeline
   useEffect(() => {
-    if (!task?.id) return
-    rpc('get_activity_timeline_rpc', { p_token: token, p_task_id: task.id, p_limit: 30 })
-      .then(data => setActivity(data || []))
+    if (!safeTask?.id) return
+    rpc('get_activity_timeline_rpc', { p_token: token, p_task_id: safeTask.id, p_limit: 30 })
+      .then(data => setActivity(arrayFromRpc(data, ['data', 'items', 'activity'])))
       .catch(() => {})
-  }, [task?.id, token])
+  }, [safeTask?.id, token])
 
   useEffect(() => {
-    if (detail?.comments) setComments(detail.comments)
+    if (Array.isArray(detail?.comments)) setComments(detail.comments)
   }, [detail?.comments])
 
   async function submitComment(e) {
@@ -903,31 +1013,32 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
     if (!comment.trim()) return
     setSubmittingComment(true)
     try {
-      await rpc('add_task_comment_rpc', { p_token: token, p_task_id: task.id, p_body: comment })
-      const data = await rpc('get_task_comments_rpc', { p_token: token, p_task_id: task.id })
-      setComments(data || [])
+      await rpc('add_task_comment_rpc', { p_token: token, p_task_id: safeTask.id, p_body: comment })
+      const data = await rpc('get_task_comments_rpc', { p_token: token, p_task_id: safeTask.id })
+      setComments(arrayFromRpc(data, ['data', 'comments', 'items']))
       setComment('')
       notify('Comment added')
     } catch (ex) { notify(ex.message, 'error') }
     finally { setSubmittingComment(false) }
   }
 
-  const proofs = detail?.proofs || []
-  const assignee = detail?.assigned_to_name || task?.assigned_to || ''
-  const assigner = detail?.assigned_by_name || task?.assigned_by_name || ''
+  const proofs = Array.isArray(detail?.proofs) ? detail.proofs : []
+  const assignee = detail?.assigned_to_name || safeTask?.assigned_to || 'Unassigned'
+  const assigner = detail?.assigned_by_name || safeTask?.assigned_by_name || 'Unknown'
+  const statusLabel = String(safeTask.status || 'TODO').replace('_', ' ')
 
   return (
     <div className="task-detail-panel">
       <div className="detail-header">
         <div>
-          <Badge variant={`badge-${displayStatusBadge(task.status)}`}>{task.status.replace('_', ' ')}</Badge>
-          <Badge variant={`badge-${priorityClass(task.priority)}`}>{task.priority}</Badge>
+          <Badge variant={`badge-${displayStatusBadge(safeTask.status)}`}>{statusLabel}</Badge>
+          <Badge variant={`badge-${priorityClass(safeTask.priority)}`}>{safeTask.priority}</Badge>
         </div>
         <button className="icon-btn icon-btn-sm" onClick={onClose}><X size={16} /></button>
       </div>
 
-      <div className="detail-title">{task.title}</div>
-      {task.details && <p className="detail-desc muted">{task.details}</p>}
+      <div className="detail-title">{safeTask.title}</div>
+      {safeTask.details && <p className="detail-desc muted">{safeTask.details}</p>}
 
       <div className="detail-meta-row">
         <div className="meta-item">
@@ -940,18 +1051,18 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
         </div>
         <div className="meta-item">
           <span className="meta-label">Due</span>
-          <span className={`meta-val ${isOverdue(task) ? 'text-overdue' : ''}`}>{niceDate(task.due_date)}</span>
+          <span className={`meta-val ${isOverdue(safeTask) ? 'text-overdue' : ''}`}>{niceDate(safeTask.due_date)}</span>
         </div>
         <div className="meta-item">
           <span className="meta-label">Time logged</span>
-          <span className="meta-val">{task.minutes || 0}m</span>
+          <span className="meta-val">{safeTask.minutes || 0}m</span>
         </div>
       </div>
 
       {/* Status changer */}
       <div className="detail-section">
         <div className="detail-label"><CheckCircle size={14} /> Status</div>
-        <select className="input status-select" value={task.status}
+        <select className="input status-select" value={safeTask.status}
           onChange={e => onStatusChange(e.target.value)}>
           <option>TODO</option><option>IN_PROGRESS</option><option>SUBMITTED</option><option>DONE</option><option>BLOCKED</option>
         </select>
@@ -1021,7 +1132,7 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
       </div>
 
       {/* Danger Zone */}
-      {me.role === 'CEO' && (
+      {safeMe.role === 'CEO' && (
         <div className="detail-danger">
           <button className="btn btn-danger btn-sm" onClick={onDelete}>
             <Trash2 size={14} /> Delete this task
