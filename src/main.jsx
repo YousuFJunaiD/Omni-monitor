@@ -629,6 +629,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
   const visibleUsers = Array.isArray(safeDash.visible_users) ? safeDash.visible_users : []
   const safeTasks = Array.isArray(tasks) ? tasks : []
   const userById = useMemo(() => Object.fromEntries(visibleUsers.filter(Boolean).map(u => [u.id, u])), [visibleUsers])
+  const canCreateTasks = safeMe.role !== 'INTERN'
 
   // Track last login time for "new task" detection
   const lastLogin = useMemo(() => {
@@ -764,9 +765,11 @@ function TasksTab({ dash, token, me, reload, notify }) {
             {completedTasks.length > 0 && <span> · {completedTasks.length} completed</span>}
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowAssign(true)}>
-          <Plus size={16} /> New Task
-        </button>
+        {canCreateTasks && (
+          <button className="btn btn-primary" onClick={() => setShowAssign(true)}>
+            <Plus size={16} /> New Task
+          </button>
+        )}
       </div>
 
       {taskError && (
@@ -919,7 +922,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
       </div>
 
       {/* Assign Modal */}
-      {showAssign && (
+      {showAssign && canCreateTasks && (
         <AssignModal
           token={token}
           users={visibleUsers}
@@ -1262,6 +1265,8 @@ function AssignModal({ token, users, me, onClose, onCreated, notify }) {
 
   const [f, setF] = useState({ title: '', details: '', assigned_to: '', priority: 'HIGH', due_date: '' })
   const [saving, setSaving] = useState(false)
+
+  if (me?.role === 'INTERN') return null
 
   async function submit(e) {
     e.preventDefault()
