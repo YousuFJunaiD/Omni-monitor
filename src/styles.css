@@ -929,6 +929,69 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 .proof-note { font-size: 12px; color: var(--text-2); line-height: 1.4; }
 .proof-img { max-width: 100%; border-radius: 6px; border: 1px solid var(--border); margin-top: 6px; }
 
+.detail-proof-submit-section {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--surface-2);
+}
+
+.proof-submit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.proof-note-input {
+  min-height: 92px;
+}
+
+.proof-submit-grid {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.45fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.proof-minutes-field label {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.proof-upload-btn {
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.proof-upload-btn span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.proof-upload-btn input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.proof-preview {
+  display: grid;
+  gap: 8px;
+}
+
+.proof-preview img {
+  max-height: 180px;
+  width: 100%;
+  object-fit: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
 .timeline { display: flex; flex-direction: column; gap: 0; max-height: 200px; overflow-y: auto; }
 .timeline-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border-soft); }
 .timeline-item:last-child { border-bottom: none; }
@@ -4544,6 +4607,7 @@ body {
 .detail-desc,
 .meta-val,
 .comment-body,
+.proof-submit-form,
 .proof-note,
 .timeline-text,
 .activity-text,
@@ -4825,6 +4889,34 @@ textarea {
     z-index: auto;
   }
 
+  .detail-proof-submit-section {
+    background: #FFFFFF;
+    border-color: var(--border);
+    display: block;
+    padding: 12px;
+  }
+
+  .proof-submit-form {
+    gap: 10px;
+  }
+
+  .proof-note-input {
+    min-height: 104px;
+  }
+
+  .proof-submit-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .proof-upload-btn {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .proof-preview img {
+    max-height: 220px;
+  }
+
   .detail-status-section .status-select {
     width: 100%;
   }
@@ -4879,5 +4971,13 @@ textarea {
 
   .comment-form .btn {
     width: 46px;
+  }
+
+  .detail-proof-submit-section {
+    padding: 10px;
+  }
+
+  .proof-preview img {
+    max-height: 180px;
   }
 }

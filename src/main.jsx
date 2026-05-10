@@ -916,6 +916,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
               const d = await rpc('get_task_by_id_rpc', { p_token: token, p_task_id: selectedTask.id }).catch(() => null)
               if (d) setTaskDetail(d)
             }}
+            onProofSubmitted={reload}
             notify={notify}
           />
         )}
@@ -1036,8 +1037,9 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
   )
 }
 
-function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onDelete, notify }) {
-  const safeTask = normalizeTaskForUi(detail || task)
+function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onDelete, onProofSubmitted, notify }) {
+  const [localDetail, setLocalDetail] = useState(detail || null)
+  const safeTask = normalizeTaskForUi(localDetail || detail || task)
   const safeMe = me || {}
   const panelRef = useRef(null)
   const previousFocusRef = useRef(null)
@@ -1045,6 +1047,14 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
   const [submittingComment, setSubmittingComment] = useState(false)
   const [comments, setComments] = useState(Array.isArray(detail?.comments) ? detail.comments : [])
   const [activity, setActivity] = useState([])
+  const [proofNote, setProofNote] = useState('')
+  const [proofMinutes, setProofMinutes] = useState('')
+  const [proofScreenshot, setProofScreenshot] = useState('')
+  const [proofFileName, setProofFileName] = useState('')
+  const [submittingProof, setSubmittingProof] = useState(false)
+  const [proofs, setProofs] = useState(Array.isArray(detail?.proofs) ? detail.proofs : Array.isArray(task?.proofs) ? task.proofs : [])
+  const [proofError, setProofError] = useState('')
+  const canSubmitProof = safeMe.role === 'CEO' || safeTask.assigned_to_id === safeMe.id
 
   useEffect(() => {
     const panel = panelRef.current
@@ -1103,8 +1113,10 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
   }, [safeTask?.id, token])
 
   useEffect(() => {
+    if (detail) setLocalDetail(detail)
     if (Array.isArray(detail?.comments)) setComments(detail.comments)
-  }, [detail?.comments])
+    if (Array.isArray(detail?.proofs)) setProofs(detail.proofs)
+  }, [detail])
 
   async function submitComment(e) {
     e.preventDefault()
@@ -1120,9 +1132,64 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
     finally { setSubmittingComment(false) }
   }
 
-  const proofs = Array.isArray(detail?.proofs) ? detail.proofs : []
-  const assignee = detail?.assigned_to_name || safeTask?.assigned_to || 'Unassigned'
-  const assigner = detail?.assigned_by_name || safeTask?.assigned_by_name || 'Unknown'
+  async function handleProofFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setProofError('')
+    try {
+      const dataUrl = await readFileAsDataURL(file)
+      setProofScreenshot(dataUrl)
+      setProofFileName(file.name)
+    } catch {
+      setProofError('Could not read the selected proof file.')
+      setProofScreenshot('')
+      setProofFileName('')
+    }
+  }
+
+  async function submitProof(e) {
+    e.preventDefault()
+    const note = proofNote.trim()
+    const minutes = Math.max(0, Number.parseInt(proofMinutes, 10) || 0)
+    if (!note && !proofScreenshot) {
+      setProofError('Add a note or upload a screenshot before submitting proof.')
+      return
+    }
+
+    setSubmittingProof(true)
+    setProofError('')
+    try {
+      await rpc('add_log_rpc', {
+        p_token: token,
+        p_task_id: safeTask.id,
+        p_note: note,
+        p_minutes: minutes,
+        p_screenshot_data_url: proofScreenshot || null,
+        p_is_submission: true
+      })
+      const nextDetail = await rpc('get_task_by_id_rpc', { p_token: token, p_task_id: safeTask.id }).catch(() => null)
+      const normalizedDetail = nextDetail ? normalizeTaskForUi(objectFromRpc(nextDetail)) : null
+      if (normalizedDetail) {
+        setLocalDetail(normalizedDetail)
+        setProofs(Array.isArray(normalizedDetail.proofs) ? normalizedDetail.proofs : [])
+        if (Array.isArray(normalizedDetail.comments)) setComments(normalizedDetail.comments)
+      }
+      setProofNote('')
+      setProofMinutes('')
+      setProofScreenshot('')
+      setProofFileName('')
+      await onProofSubmitted?.()
+      notify('Proof submitted')
+    } catch (ex) {
+      setProofError(ex?.message || 'Unable to submit proof.')
+      notify(ex?.message || 'Unable to submit proof.', 'error')
+    } finally {
+      setSubmittingProof(false)
+    }
+  }
+
+  const assignee = localDetail?.assigned_to_name || detail?.assigned_to_name || safeTask?.assigned_to || 'Unassigned'
+  const assigner = localDetail?.assigned_by_name || detail?.assigned_by_name || safeTask?.assigned_by_name || 'Unknown'
   const statusLabel = String(safeTask.status || 'TODO').replace('_', ' ')
 
   return (
@@ -1174,6 +1241,41 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
           onChange={e => onStatusChange(e.target.value)}>
           <option>TODO</option><option>IN_PROGRESS</option><option>SUBMITTED</option><option>DONE</option><option>BLOCKED</option>
         </select>
+      </div>
+
+      {/* Proof submission */}
+      <div className="detail-section detail-proof-submit-section">
+        <div className="detail-label"><Upload size={14} /> Submit Proof</div>
+        {canSubmitProof ? (
+          <form className="proof-submit-form" onSubmit={submitProof}>
+            <textarea className="input proof-note-input" placeholder="Describe what was completed, add links, blockers, or proof notes..."
+              value={proofNote} onChange={e => setProofNote(e.target.value)} />
+            <div className="proof-submit-grid">
+              <div className="field proof-minutes-field">
+                <label>Minutes</label>
+                <input className="input" type="number" min="0" inputMode="numeric" placeholder="0"
+                  value={proofMinutes} onChange={e => setProofMinutes(e.target.value)} />
+              </div>
+              <label className="btn proof-upload-btn">
+                <Upload size={14} />
+                <span>{proofFileName || 'Upload proof'}</span>
+                <input type="file" accept="image/*" onChange={handleProofFile} />
+              </label>
+            </div>
+            {proofScreenshot && (
+              <div className="proof-preview">
+                <img src={proofScreenshot} alt="Selected proof preview" />
+                <button className="btn btn-sm" type="button" onClick={() => { setProofScreenshot(''); setProofFileName('') }}>Remove</button>
+              </div>
+            )}
+            {proofError && <p className="form-error">{proofError}</p>}
+            <button className="btn btn-primary btn-full" type="submit" disabled={submittingProof || (!proofNote.trim() && !proofScreenshot)}>
+              {submittingProof ? 'Submitting proof...' : 'Submit Proof'}
+            </button>
+          </form>
+        ) : (
+          <p className="muted small">Proof submission is available to the assignee and CEO. Proof history remains visible below.</p>
+        )}
       </div>
 
       {/* Comments */}
