@@ -232,7 +232,7 @@ begin
   select * into me from private_user_from_token(p_token); if me.id is null then return jsonb_build_object('ok',false,'error','Unauthorized'); end if;
   select * into task_row from tasks where id=p_task_id; select * into assignee from app_users where id=task_row.assigned_to;
   if task_row.id is null then return jsonb_build_object('ok',false,'error','Task not found'); end if;
-  if not (me.role='CEO' or task_row.assigned_to=me.id or (me.role='BOARD' and assignee.role='INTERN')) then return jsonb_build_object('ok',false,'error','Not allowed'); end if;
+  if not (me.role='CEO' or task_row.assigned_to=me.id) then return jsonb_build_object('ok',false,'error','Not allowed'); end if;
   update tasks set status=p_status, completed_at=case when p_status='DONE' then now() else completed_at end where id=p_task_id;
   insert into audit_logs(actor_id,action,target_table,target_id,meta) values(me.id,'UPDATE_STATUS','tasks',p_task_id,jsonb_build_object('status',p_status));
   return jsonb_build_object('ok',true);

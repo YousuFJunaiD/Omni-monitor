@@ -239,12 +239,7 @@ begin
   if me.id is null then return jsonb_build_object('ok',false,'data',null,'error','Unauthorized'); end if;
   select * into task_row from tasks where id=p_task_id;
   if task_row.id is null then return jsonb_build_object('ok',false,'data',null,'error','Task not found'); end if;
-  if not (
-    me.role='CEO'
-    or round4_can_manage_task(me,task_row)
-    or task_row.assigned_to=me.id
-    or (me.role='FOUNDER' and round4_can_view_task(me,task_row))
-  ) then
+  if not (me.role='CEO' or task_row.assigned_to=me.id) then
     return jsonb_build_object('ok',false,'data',null,'error','Not allowed');
   end if;
 

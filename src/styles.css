@@ -905,6 +905,12 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 
 .status-select { width: 100%; }
 
+.readonly-status {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+}
+
 .comment-list { display: flex; flex-direction: column; gap: 12px; max-height: 240px; overflow-y: auto; }
 
 .comment-item { padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius-sm); }

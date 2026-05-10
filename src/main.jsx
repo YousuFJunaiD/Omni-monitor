@@ -952,6 +952,7 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
   const safeMe = me || {}
   const assignee = userById[safeTask.assigned_to_id] || { name: safeTask.assigned_to, strikes: 0 }
   const isForMe = safeTask.assigned_to_id === safeMe.id
+  const canUpdateStatus = safeMe.role === 'CEO' || isForMe
   const statusLabel = String(safeTask.status || 'TODO').replace('_', ' ')
 
   return (
@@ -1025,7 +1026,7 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
       </div>
 
       {/* Status quick-change */}
-      {isForMe && !isDone && (
+      {canUpdateStatus && !isDone && (
         <select className="task-row-status"
           value={safeTask.status}
           onChange={e => { e.stopPropagation(); onSetStatus(safeTask.id, e.target.value) }}
@@ -1055,6 +1056,7 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
   const [proofs, setProofs] = useState(Array.isArray(detail?.proofs) ? detail.proofs : Array.isArray(task?.proofs) ? task.proofs : [])
   const [proofError, setProofError] = useState('')
   const canSubmitProof = safeMe.role === 'CEO' || safeTask.assigned_to_id === safeMe.id
+  const canUpdateStatus = safeMe.role === 'CEO' || safeTask.assigned_to_id === safeMe.id
 
   useEffect(() => {
     const panel = panelRef.current
@@ -1237,10 +1239,16 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
       {/* Status changer */}
       <div className="detail-section detail-status-section">
         <div className="detail-label"><CheckCircle size={14} /> Status</div>
-        <select className="input status-select" value={safeTask.status}
-          onChange={e => onStatusChange(e.target.value)}>
-          <option>TODO</option><option>IN_PROGRESS</option><option>SUBMITTED</option><option>DONE</option><option>BLOCKED</option>
-        </select>
+        {canUpdateStatus ? (
+          <select className="input status-select" value={safeTask.status}
+            onChange={e => onStatusChange(e.target.value)}>
+            <option>TODO</option><option>IN_PROGRESS</option><option>SUBMITTED</option><option>DONE</option><option>BLOCKED</option>
+          </select>
+        ) : (
+          <div className="readonly-status">
+            <Badge variant={`badge-${displayStatusBadge(safeTask.status)}`}>{statusLabel}</Badge>
+          </div>
+        )}
       </div>
 
       {/* Proof submission */}
