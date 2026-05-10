@@ -4503,3 +4503,281 @@ select {
     transform: none;
   }
 }
+
+/* Responsive stability guardrails. Layout-only fixes for small screens and narrow tablets. */
+html,
+body,
+#root {
+  max-width: 100%;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.app-shell,
+.app-content,
+.tab-home,
+.tab-tasks,
+.tab-ideas,
+.tab-team,
+.tab-more,
+.panel,
+.attention-col,
+.stat-card,
+.task-row,
+.idea-card,
+.person-card,
+.team-profile-panel,
+.ranking-panel,
+.modal,
+.task-detail-panel {
+  min-width: 0;
+}
+
+.task-row-title,
+.task-row-summary,
+.idea-title,
+.idea-desc,
+.decision-note,
+.detail-title,
+.detail-desc,
+.meta-val,
+.comment-body,
+.proof-note,
+.timeline-text,
+.activity-text,
+.attention-task-title,
+.profile-task-title,
+.best-name,
+.notif-body b,
+.notif-text,
+.notice {
+  overflow-wrap: anywhere;
+}
+
+.btn,
+.icon-btn,
+.nav-item,
+.filter-pill,
+.task-row-delete,
+.notif-toggle,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
+@media (max-width: 1180px) and (min-width: 901px) {
+  .stats-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .attention-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) and (min-width: 769px) {
+  .app-content {
+    padding: 22px;
+  }
+
+  .task-lists.with-panel {
+    flex-direction: column;
+  }
+
+  .task-lists.with-panel .task-main-col {
+    max-width: none;
+    width: 100%;
+  }
+
+  .task-detail-panel {
+    max-height: none;
+    position: static;
+    width: 100%;
+  }
+
+  .team-grid,
+  .more-grid,
+  .home-bottom-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .login-wrap {
+    min-height: 100dvh;
+    padding: max(16px, env(safe-area-inset-top)) var(--mobile-gutter, 16px) max(16px, env(safe-area-inset-bottom));
+  }
+
+  .login-card {
+    padding: 24px 18px;
+  }
+
+  .page-header > .btn,
+  .page-header > button {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .btn,
+  .input,
+  select,
+  textarea {
+    min-height: 44px;
+  }
+
+  .icon-btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .icon-btn-sm,
+  .task-row-delete {
+    min-height: 36px;
+    min-width: 36px;
+  }
+
+  .task-row {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .task-row-body {
+    flex: 1 1 calc(100% - 132px);
+  }
+
+  .task-row-status {
+    flex: 1 0 128px;
+    max-width: 100%;
+  }
+
+  .task-row-badges,
+  .idea-card-meta {
+    min-width: 0;
+  }
+
+  .badge {
+    max-width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .modal-overlay {
+    min-height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .modal {
+    max-height: calc(100dvh - env(safe-area-inset-top));
+  }
+
+  .modal-body {
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .task-detail-panel {
+    overscroll-behavior: contain;
+  }
+
+  .comment-list,
+  .timeline {
+    max-height: min(34dvh, 240px);
+  }
+
+  .rank-row {
+    grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  }
+
+  .rank-score {
+    min-width: max-content;
+  }
+
+  .profile-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profile-task-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profile-task-item .badge,
+  .profile-task-item .muted {
+    justify-self: start;
+  }
+
+  .toast {
+    max-width: none;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 390px) {
+  :root {
+    --mobile-gutter: 12px;
+    --mobile-card-pad: 12px;
+    --mobile-stack-gap: 9px;
+  }
+
+  .mobile-app-title {
+    max-width: 36vw;
+  }
+
+  .nav-brand {
+    max-width: 34vw;
+  }
+
+  .nav-item {
+    font-size: 9.5px;
+  }
+
+  .nav-item svg {
+    height: 19px;
+    width: 19px;
+  }
+
+  .stats-row {
+    gap: 8px;
+  }
+
+  .stat-card {
+    align-items: flex-start;
+    flex-direction: column;
+    min-height: 96px;
+  }
+
+  .task-row-body {
+    flex-basis: 100%;
+  }
+
+  .task-row-status {
+    margin-left: 13px;
+    width: calc(100% - 13px);
+  }
+
+  .rank-row {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+  }
+
+  .rank-row .badge-strike {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .rank-score {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+}
+
+@media (max-width: 340px) {
+  .stats-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mobile-app-title {
+    display: none;
+  }
+}
