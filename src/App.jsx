@@ -1,3 +1,7 @@
+// DORMANT ARCHITECTURE NOTE:
+// Production currently mounts index.html -> src/main.jsx -> src/styles.css.
+// This router/AppShell tree is not active unless the entry path is intentionally migrated.
+// See FRONTEND_ARCHITECTURE.md before editing this file for production UI work.
 import {Suspense, lazy} from 'react'
 import {BrowserRouter, Navigate, Route, Routes, useLocation} from 'react-router-dom'
 import {NotifyProvider} from './lib/notify'

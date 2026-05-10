@@ -1,3 +1,9 @@
+/*
+  DORMANT STYLE SYSTEM NOTE:
+  Production currently imports src/styles.css from src/main.jsx.
+  The split files in src/styles/ are not active unless the app is migrated to src/App.jsx.
+  See FRONTEND_ARCHITECTURE.md before editing this file for production UI work.
+*/
 :root {
   --bg: #f7f9fc;
   --surface: #ffffff;

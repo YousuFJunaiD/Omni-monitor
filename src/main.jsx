@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState, useCallback} from 'react'
+import React, {useEffect, useMemo, useRef, useState, useCallback} from 'react'
 import {createRoot} from 'react-dom/client'
 import {
   Activity,
@@ -214,11 +214,20 @@ function Toast({ message, type = 'success', onDismiss }) {
 
 // ─── Empty state ─────────────────────────────────────────────────────────────
 
+const emptyStateHints = {
+  'No proofs yet': 'Proof activity will appear here as work is submitted.',
+  'No ideas yet': 'Submitted ideas and decisions will collect here.',
+  'No notifications': 'New approvals, updates, and system notices will appear here.',
+}
+
 function Empty({ text, icon }) {
+  const hint = emptyStateHints[text]
+
   return (
     <div className="empty-state">
       {icon && <div className="empty-icon">{icon}</div>}
       <span>{text}</span>
+      {hint && <p>{hint}</p>}
     </div>
   )
 }
@@ -291,15 +300,30 @@ const NAV = [
 ]
 
 function NavBar({ tab, setTab, me, unreadNotif, onLogout }) {
+  const currentPage = NAV.find(n => n.id === tab)?.label || 'Home'
+
   return (
-    <nav className="navbar">
+    <nav className="navbar" aria-label="Primary navigation">
       <div className="nav-brand">
         <div className="nav-logo">OM</div>
-        <span className="nav-title">Omnimate</span>
+        <div className="nav-brand-copy">
+          <span className="nav-title">Omnimate Monitor</span>
+          <span className="nav-subtitle">Execution control</span>
+        </div>
       </div>
+      <div className="mobile-app-title" aria-live="polite">
+        <span>{currentPage}</span>
+        {unreadNotif > 0 && <b>{unreadNotif}</b>}
+      </div>
+      <div className="nav-context" aria-label="Workspace">
+        <span>Workspace</span>
+        <strong>{me?.title || 'Operations'}</strong>
+      </div>
+      <span className="nav-group-label">Operate</span>
       <div className="nav-items">
         {NAV.map(n => (
-          <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} onClick={() => setTab(n.id)}>
+          <button key={n.id} type="button" aria-current={tab === n.id ? 'page' : undefined}
+            className={`nav-item ${tab === n.id ? 'active' : ''}`} onClick={() => setTab(n.id)}>
             <n.icon size={17} />
             <span>{n.label}</span>
             {n.id === 'more' && unreadNotif > 0 && <span className="nav-badge">{unreadNotif}</span>}
@@ -311,7 +335,7 @@ function NavBar({ tab, setTab, me, unreadNotif, onLogout }) {
           <span className="user-name">{me?.name?.split(' ')[0]}</span>
           <span className="user-role">{displayRole(me?.role)}</span>
         </div>
-        <button className="icon-btn" onClick={onLogout} title="Logout"><LogOut size={16} /></button>
+        <button className="icon-btn" type="button" onClick={onLogout} title="Logout" aria-label="Logout"><LogOut size={16} /></button>
       </div>
     </nav>
   )
@@ -443,7 +467,7 @@ function HomeTab({ dash, token, me, reload, notify }) {
     .reduce((m, r) => Math.max(m, r.score || 0), 0)
 
   return (
-    <div className="tab-home">
+    <div className="tab-home home-command-center">
       <div className="page-header">
         <div>
           <p className="page-eyebrow">Execution OS</p>
@@ -458,7 +482,7 @@ function HomeTab({ dash, token, me, reload, notify }) {
         )}
       </div>
 
-      {/* Overview Stats */}
+      <div className="dashboard-section-label">Operational snapshot</div>
       <div className="stats-row">
         <StatCard icon={<AlertCircle size={18} />} label="Overdue" value={overdue.length} accent />
         <StatCard icon={<Zap size={18} />} label="Needs Review" value={needsReview.length} />
@@ -470,7 +494,7 @@ function HomeTab({ dash, token, me, reload, notify }) {
         } />
       </div>
 
-      {/* Attention Signals Grid */}
+      <div className="dashboard-section-label">Execution queues</div>
       <div className="attention-grid">
         {/* Overdue */}
         <div className="attention-col">
@@ -538,6 +562,7 @@ function HomeTab({ dash, token, me, reload, notify }) {
         </div>
       </div>
 
+      <div className="dashboard-section-label">Recent movement</div>
       <div className="home-bottom-grid">
         {/* Recent Activity */}
         <div className="panel">
@@ -570,6 +595,9 @@ function HomeTab({ dash, token, me, reload, notify }) {
                   <span className="muted small">{timeAgo(p.created_at)}</span>
                 </div>
                 <p className="proof-note">{p.note}</p>
+                {p.screenshot_data_url && (
+                  <img className="proof-thumb" src={p.screenshot_data_url} alt="Proof preview" loading="lazy" />
+                )}
                 {p.is_submission && <Badge variant="badge-submitted">Submission</Badge>}
               </div>
             ))
@@ -933,7 +961,15 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
         isDone ? 'task-row-done' : '',
         isManagedIntern ? 'task-row-managed' : '',
       ].filter(Boolean).join(' ')}
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen()
+        }
+      }}
     >
       {/* Priority stripe */}
       <div className={`task-priority-stripe stripe-${priorityClass(safeTask.priority).toLowerCase()}`} />
@@ -949,6 +985,7 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
             </button>
           )}
         </div>
+        {safeTask.details && <p className="task-row-summary">{safeTask.details}</p>}
 
         <div className="task-row-meta">
           {/* Assignee */}
@@ -967,6 +1004,12 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
           {safeTask.due_date && (
             <span className={`task-row-date ${isOverdue ? 'date-overdue' : isDueSoon ? 'date-soon' : ''}`}>
               <CalendarDays size={11} /> {niceDate(safeTask.due_date)}
+            </span>
+          )}
+
+          {Array.isArray(safeTask.proofs) && safeTask.proofs.length > 0 && (
+            <span className="task-row-proof">
+              <Camera size={11} /> {safeTask.proofs.length} proof{safeTask.proofs.length === 1 ? '' : 's'}
             </span>
           )}
 
@@ -993,10 +1036,60 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
 function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onDelete, notify }) {
   const safeTask = normalizeTaskForUi(detail || task)
   const safeMe = me || {}
+  const panelRef = useRef(null)
+  const previousFocusRef = useRef(null)
   const [comment, setComment] = useState('')
   const [submittingComment, setSubmittingComment] = useState(false)
   const [comments, setComments] = useState(Array.isArray(detail?.comments) ? detail.comments : [])
   const [activity, setActivity] = useState([])
+
+  useEffect(() => {
+    const panel = panelRef.current
+    previousFocusRef.current = document.activeElement
+    const mobileQuery = window.matchMedia('(max-width: 768px)')
+    const previousOverflow = document.body.style.overflow
+
+    if (mobileQuery.matches) {
+      document.body.style.overflow = 'hidden'
+    }
+
+    window.requestAnimationFrame(() => {
+      const closeButton = panel?.querySelector('[data-task-detail-close]')
+      ;(closeButton || panel)?.focus?.({ preventScroll: true })
+    })
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      previousFocusRef.current?.focus?.({ preventScroll: true })
+    }
+  }, [])
+
+  function handlePanelKeyDown(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      onClose()
+      return
+    }
+
+    if (e.key !== 'Tab') return
+
+    const focusable = panelRef.current?.querySelectorAll(
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'
+    )
+    const nodes = Array.from(focusable || []).filter(node => node.getClientRects().length > 0)
+    if (!nodes.length) return
+
+    const first = nodes[0]
+    const last = nodes[nodes.length - 1]
+
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
 
   // Load activity timeline
   useEffect(() => {
@@ -1030,16 +1123,26 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
   const statusLabel = String(safeTask.status || 'TODO').replace('_', ' ')
 
   return (
-    <div className="task-detail-panel">
+    <>
+      <button className="task-detail-backdrop" type="button" aria-label="Close task details" onClick={onClose} />
+      <aside
+        className="task-detail-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-detail-title"
+        tabIndex={-1}
+        ref={panelRef}
+        onKeyDown={handlePanelKeyDown}
+      >
       <div className="detail-header">
         <div>
           <Badge variant={`badge-${displayStatusBadge(safeTask.status)}`}>{statusLabel}</Badge>
           <Badge variant={`badge-${priorityClass(safeTask.priority)}`}>{safeTask.priority}</Badge>
         </div>
-        <button className="icon-btn icon-btn-sm" onClick={onClose}><X size={16} /></button>
+        <button className="icon-btn icon-btn-sm" type="button" onClick={onClose} aria-label="Close task details" data-task-detail-close><X size={16} /></button>
       </div>
 
-      <div className="detail-title">{safeTask.title}</div>
+      <div className="detail-title" id="task-detail-title">{safeTask.title}</div>
       {safeTask.details && <p className="detail-desc muted">{safeTask.details}</p>}
 
       <div className="detail-meta-row">
@@ -1062,7 +1165,7 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
       </div>
 
       {/* Status changer */}
-      <div className="detail-section">
+      <div className="detail-section detail-status-section">
         <div className="detail-label"><CheckCircle size={14} /> Status</div>
         <select className="input status-select" value={safeTask.status}
           onChange={e => onStatusChange(e.target.value)}>
@@ -1108,7 +1211,7 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
               </div>
               {p.note && <p className="proof-note">{p.note}</p>}
               {p.screenshot_data_url && (
-                <img className="proof-img" src={p.screenshot_data_url} alt="proof screenshot" />
+                <img className="proof-img" src={p.screenshot_data_url} alt="Proof screenshot" loading="lazy" />
               )}
             </div>
           ))
@@ -1141,7 +1244,8 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
           </button>
         </div>
       )}
-    </div>
+      </aside>
+    </>
   )
 }
 
@@ -1405,7 +1509,13 @@ function TeamTab({ dash, token, me, reload, notify }) {
           <div className="people-grid">
             {people.map(u => (
               <div key={u.id} className={`person-card ${u.strikes >= 3 ? 'person-danger' : ''}`}
-                onClick={() => viewProfile(u)} role="button">
+                onClick={() => viewProfile(u)} role="button" tabIndex={0}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    viewProfile(u)
+                  }
+                }}>
                 <div className="person-avatar">{u.name.split(' ').map(n => n[0]).join('').slice(0, 2)}</div>
                 <div className="person-info">
                   <b className="person-name">{u.name}</b>
