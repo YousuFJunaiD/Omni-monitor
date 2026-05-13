@@ -43,6 +43,8 @@ const emptyDash = {
 }
 const ideaStatuses = ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'IN_PROGRESS', 'REJECTED']
 const taskStatuses = ['ALL', 'TODO', 'IN_PROGRESS', 'SUBMITTED', 'DONE', 'BLOCKED']
+const FRONTEND_INTERN_USERNAMES = new Set(['aarzoo.anna', 'ruqiya.n', 'mazen.ahmed', 'polok.k', 'syed.firas', 'lotifur.r'])
+const BACKEND_INTERN_USERNAMES = new Set(['akshaya.r', 'ismail.q', 'mazharuddin.s'])
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
@@ -125,6 +127,30 @@ function isAuthExpiredError(error) {
     || message.includes('invalid token')
     || message.includes('expired')
     || message.includes('session')
+}
+
+function userDepartment(user = {}) {
+  const username = String(user.username || '').toLowerCase()
+  const title = String(user.title || '').toLowerCase()
+  if (FRONTEND_INTERN_USERNAMES.has(username) || title.includes('frontend') || /\b(cpo|cxo)\b/.test(title)) return 'frontend'
+  if (BACKEND_INTERN_USERNAMES.has(username) || title.includes('backend') || /\b(cto|csa)\b/.test(title)) return 'backend'
+  return ''
+}
+
+function canAssignToUser(manager = {}, target = {}) {
+  const managerRole = String(manager.role || '').toUpperCase()
+  const targetRole = String(target.role || '').toUpperCase()
+  if (!target?.id || targetRole === 'CEO') return false
+  if (managerRole === 'CEO') return true
+  if (managerRole !== 'FOUNDER' && managerRole !== 'BOARD') return false
+  return targetRole === 'INTERN' && userDepartment(manager) && userDepartment(manager) === userDepartment(target)
+}
+
+function canManageInternForUser(manager = {}, intern = {}) {
+  const managerRole = String(manager.role || '').toUpperCase()
+  if (managerRole === 'CEO') return true
+  if (managerRole !== 'FOUNDER' && managerRole !== 'BOARD') return false
+  return String(intern.role || '').toUpperCase() === 'INTERN' && userDepartment(manager) && userDepartment(manager) === userDepartment(intern)
 }
 
 function arrayFromRpc(result, keys = []) {
@@ -728,7 +754,10 @@ function TasksTab({ dash, token, me, reload, notify }) {
 
   const visibleRoleTasks = safeTasks.filter(t => {
     if (isIntern) return t.assigned_to_id === safeMe.id
-    if (isFounder) return t.assigned_to_id === safeMe.id || (t.assignee_role === 'INTERN' && t.assigned_by_id === safeMe.id)
+    if (isFounder) {
+      const assignee = userById[t.assigned_to_id] || { role: t.assignee_role, title: t.assignee_title, username: t.assignee_username }
+      return t.assigned_to_id === safeMe.id || canManageInternForUser(safeMe, assignee)
+    }
     return true
   })
 
@@ -778,7 +807,10 @@ function TasksTab({ dash, token, me, reload, notify }) {
   }, [searchFiltered, lastLogin])
 
   const myTasks = sorted.filter(t => t.assigned_to_id === safeMe.id)
-  const managedInternTasks = sorted.filter(t => t.assignee_role === 'INTERN' && t.assigned_to_id !== safeMe.id && (isCEO || t.assigned_by_id === safeMe.id))
+  const managedInternTasks = sorted.filter(t => {
+    if (t.assignee_role !== 'INTERN' || t.assigned_to_id === safeMe.id) return false
+    return isCEO || canManageInternForUser(safeMe, userById[t.assigned_to_id] || { role: t.assignee_role, title: t.assignee_title, username: t.assignee_username })
+  })
   const founderTasks = sorted.filter(t => t.assignee_role !== 'INTERN')
   const internTasks = sorted.filter(t => t.assignee_role === 'INTERN')
   const reviewQueue = sorted.filter(t => t.status === 'SUBMITTED')
@@ -1469,13 +1501,11 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
 // ─── Assign Modal ─────────────────────────────────────────────────────────────
 
 function AssignModal({ token, users, me, onClose, onCreated, notify }) {
-  // CEO can assign to founders + interns. Others can assign to interns only.
   const assignableUsers = useMemo(() => {
-    if (me.role === 'CEO') {
-      return users.filter(u => u.role !== 'CEO' && u.role !== 'BOARD')
-    }
-    return users.filter(u => u.role === 'INTERN')
-  }, [users, me.role])
+    return users
+      .filter(u => canAssignToUser(me, u))
+      .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')) || String(a.name || '').localeCompare(String(b.name || '')))
+  }, [users, me])
 
   const [f, setF] = useState({ title: '', details: '', assigned_to: '', priority: 'HIGH', due_date: '' })
   const [saving, setSaving] = useState(false)
@@ -1523,6 +1553,9 @@ function AssignModal({ token, users, me, onClose, onCreated, notify }) {
                 <option key={u.id} value={u.id}>{u.name} — {u.title} ({displayRole(u.role)})</option>
               ))}
             </select>
+            {assignableUsers.length === 0 && (
+              <p className="muted small">No eligible assignees available for your department.</p>
+            )}
           </div>
           <div className="modal-row">
             <div className="field">
