@@ -42,6 +42,7 @@ const emptyDash = {
   attention_blocked: [], recent_activity: [], unread_notifications: 0
 }
 const ideaStatuses = ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'IN_PROGRESS', 'REJECTED']
+const taskStatuses = ['ALL', 'TODO', 'IN_PROGRESS', 'SUBMITTED', 'DONE', 'BLOCKED']
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
@@ -118,6 +119,14 @@ function priorityClass(p) {
   return { LOW: 'low', MEDIUM: 'medium', HIGH: 'high', URGENT: 'urgent' }[p] || 'medium'
 }
 
+function isAuthExpiredError(error) {
+  const message = String(error?.message || error || '').toLowerCase()
+  return message.includes('unauthorized')
+    || message.includes('invalid token')
+    || message.includes('expired')
+    || message.includes('session')
+}
+
 function arrayFromRpc(result, keys = []) {
   if (Array.isArray(result)) return result
   if (!result || typeof result !== 'object') return []
@@ -188,6 +197,36 @@ class TabErrorBoundary extends React.Component {
           <AlertCircle size={32} className="tasks-empty-icon" />
           <b>{this.props.message || 'Unable to load this section.'}</b>
           <p>Please refresh or contact admin.</p>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
+
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error) {
+    console.error('App render error:', error)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="app-fallback">
+          <AlertCircle size={34} />
+          <b>Something went wrong.</b>
+          <p>The workspace could not render safely. Refresh or sign in again.</p>
+          <button className="btn btn-primary" type="button" onClick={() => window.location.reload()}>Reload</button>
         </div>
       )
     }
@@ -349,10 +388,14 @@ function App() {
   const [tab, setTab] = useState('home')
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
+  const [booting, setBooting] = useState(Boolean(localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY)))
   const [toast, setToast] = useState(null)
 
   async function load() {
-    if (!token) return
+    if (!token) {
+      setBooting(false)
+      return
+    }
     setLoading(true)
     setErr('')
     try {
@@ -360,10 +403,16 @@ function App() {
       setDash(data)
     } catch (ex) {
       setErr(ex.message)
-      localStorage.removeItem(TOKEN_KEY)
-      localStorage.removeItem(LEGACY_TOKEN_KEY)
-      setToken('')
-    } finally { setLoading(false) }
+      if (isAuthExpiredError(ex)) {
+        localStorage.removeItem(TOKEN_KEY)
+        localStorage.removeItem(LEGACY_TOKEN_KEY)
+        setToken('')
+        setDash(emptyDash)
+      }
+    } finally {
+      setLoading(false)
+      setBooting(false)
+    }
   }
 
   useEffect(() => { load() }, [token])
@@ -378,6 +427,16 @@ function App() {
     localStorage.removeItem(LEGACY_TOKEN_KEY)
     setToken('')
     setDash(emptyDash)
+  }
+
+  if (booting) {
+    return (
+      <div className="app-boot">
+        <div className="screen-loader" />
+        <b>Restoring session...</b>
+        <p className="muted">Loading your workspace securely.</p>
+      </div>
+    )
   }
 
   if (!token) return <Login onLogin={setToken} />
@@ -618,6 +677,8 @@ function TasksTab({ dash, token, me, reload, notify }) {
   const [tasksLoading, setTasksLoading] = useState(false)
   const [taskError, setTaskError] = useState('')
   const [q, setQ] = useState('')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [userFilter, setUserFilter] = useState('ALL')
   const [showCompleted, setShowCompleted] = useState(false)
   const [showAssign, setShowAssign] = useState(false)
   const [selectedTask, setSelectedTask] = useState(null)
@@ -630,6 +691,10 @@ function TasksTab({ dash, token, me, reload, notify }) {
   const safeTasks = Array.isArray(tasks) ? tasks : []
   const userById = useMemo(() => Object.fromEntries(visibleUsers.filter(Boolean).map(u => [u.id, u])), [visibleUsers])
   const canCreateTasks = safeMe.role !== 'INTERN'
+  const role = String(safeMe.role || '').toUpperCase()
+  const isIntern = role === 'INTERN'
+  const isFounder = role === 'FOUNDER' || role === 'BOARD'
+  const isCEO = role === 'CEO'
 
   // Track last login time for "new task" detection
   const lastLogin = useMemo(() => {
@@ -661,9 +726,19 @@ function TasksTab({ dash, token, me, reload, notify }) {
     return () => { cancelled = true }
   }, [token])
 
-  // Apply search + filter on all tasks
-  const searchFiltered = safeTasks.filter(t => {
+  const visibleRoleTasks = safeTasks.filter(t => {
+    if (isIntern) return t.assigned_to_id === safeMe.id
+    if (isFounder) return t.assigned_to_id === safeMe.id || (t.assignee_role === 'INTERN' && t.assigned_by_id === safeMe.id)
+    return true
+  })
+
+  const taskFilterUsers = visibleUsers.filter(u => visibleRoleTasks.some(t => t.assigned_to_id === u.id))
+
+  // Apply search + filters after role visibility has been enforced on the client.
+  const searchFiltered = visibleRoleTasks.filter(t => {
     if (q && !`${t?.title || ''} ${t?.details || ''}`.toLowerCase().includes(q.toLowerCase())) return false
+    if (statusFilter !== 'ALL' && t.status !== statusFilter) return false
+    if (userFilter !== 'ALL' && t.assigned_to_id !== userFilter) return false
     return true
   })
 
@@ -702,16 +777,13 @@ function TasksTab({ dash, token, me, reload, notify }) {
     })
   }, [searchFiltered, lastLogin])
 
-  // Bucket into views
-  const lastLoginDate = new Date(lastLogin)
-  const newTasks = sorted.filter(t => t.created_at && new Date(t.created_at) > lastLoginDate)
-  const overdueTasks = sorted.filter(t => isOverdue(t) && t.status !== 'DONE')
-  const dueSoonTasks = sorted.filter(t => !isOverdue(t) && isDueSoon(t) && t.status !== 'DONE')
-  const openTasks = sorted.filter(t => t.status !== 'DONE' && !isOverdue(t) && !isDueSoon(t) && !(t.created_at && new Date(t.created_at) > lastLoginDate))
-  const internManagedTasks = safeMe.role !== 'INTERN'
-    ? sorted.filter(t => t.assignee_role === 'INTERN' && t.assigned_to_id !== safeMe.id)
-    : []
+  const myTasks = sorted.filter(t => t.assigned_to_id === safeMe.id)
+  const managedInternTasks = sorted.filter(t => t.assignee_role === 'INTERN' && t.assigned_to_id !== safeMe.id && (isCEO || t.assigned_by_id === safeMe.id))
+  const founderTasks = sorted.filter(t => t.assignee_role !== 'INTERN')
+  const internTasks = sorted.filter(t => t.assignee_role === 'INTERN')
+  const reviewQueue = sorted.filter(t => t.status === 'SUBMITTED')
   const completedTasks = sorted.filter(t => t.status === 'DONE')
+  const overdueTasks = sorted.filter(t => isOverdue(t) && t.status !== 'DONE')
 
   async function openTask(task) {
     if (!task?.id) return
@@ -754,6 +826,75 @@ function TasksTab({ dash, token, me, reload, notify }) {
       || (safeMe.role === 'FOUNDER' && task?.assignee_role === 'INTERN' && task?.assigned_by_id === safeMe.id)
   }
 
+  function renderTaskSection(title, items, options = {}) {
+    const list = Array.isArray(items) ? items : []
+    if (!list.length && !options.always) return null
+    return (
+      <div className={`task-section ${options.className || ''}`.trim()}>
+        <div className={`task-section-head ${options.headClass || ''}`.trim()}>
+          <span className="task-section-label">
+            {options.icon}
+            {title}
+          </span>
+          <span className="task-section-count">{list.length}</span>
+        </div>
+        {list.length ? list.map(t => (
+          <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
+            onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
+            isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
+            isOverdue={isOverdue(t)} isDueSoon={!isOverdue(t) && isDueSoon(t)}
+            isManagedIntern={t.assignee_role === 'INTERN' && t.assigned_to_id !== safeMe.id}
+            isDone={t.status === 'DONE'} />
+        )) : (
+          <div className="tasks-empty task-section-empty">
+            <CheckCircle size={24} className="tasks-empty-icon" />
+            <b>{options.emptyTitle || 'Nothing here'}</b>
+            <p>{options.emptyText || 'This queue is clear.'}</p>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderInternSections() {
+    return (
+      <>
+        {renderTaskSection('Overdue', myTasks.filter(t => isOverdue(t) && t.status !== 'DONE'), { icon: <AlertCircle size={13} />, headClass: 'task-section-overdue' })}
+        {renderTaskSection('Active', myTasks.filter(t => ['TODO', 'IN_PROGRESS'].includes(t.status) && !isOverdue(t)), { icon: <Clock size={13} />, always: true, emptyTitle: 'No active tasks', emptyText: 'Assigned work will appear here.' })}
+        {renderTaskSection('Submitted For Review', myTasks.filter(t => t.status === 'SUBMITTED'), { icon: <Zap size={13} />, headClass: 'task-section-new' })}
+        {renderTaskSection('Blocked', myTasks.filter(t => t.status === 'BLOCKED'), { icon: <AlertCircle size={13} />, headClass: 'task-section-soon' })}
+        {renderTaskSection('Completed', myTasks.filter(t => t.status === 'DONE'), { icon: <CheckCircle size={13} /> })}
+      </>
+    )
+  }
+
+  function renderFounderSections() {
+    return (
+      <>
+        {renderTaskSection('My Overdue Tasks', myTasks.filter(t => isOverdue(t) && t.status !== 'DONE'), { icon: <AlertCircle size={13} />, headClass: 'task-section-overdue' })}
+        {renderTaskSection('My Active Tasks', myTasks.filter(t => t.status !== 'DONE' && !isOverdue(t)), { icon: <Clock size={13} />, always: true, emptyTitle: 'No active personal tasks', emptyText: 'Your own assignments are clear.' })}
+        {renderTaskSection('My Completed Tasks', myTasks.filter(t => t.status === 'DONE'), { icon: <CheckCircle size={13} /> })}
+        {renderTaskSection('Intern Overdue', managedInternTasks.filter(t => isOverdue(t) && t.status !== 'DONE'), { icon: <AlertCircle size={13} />, headClass: 'task-section-overdue' })}
+        {renderTaskSection('Intern Assigned', managedInternTasks.filter(t => t.status === 'TODO' && !isOverdue(t)), { icon: <ClipboardList size={13} /> })}
+        {renderTaskSection('Intern In Progress', managedInternTasks.filter(t => t.status === 'IN_PROGRESS' && !isOverdue(t)), { icon: <Clock size={13} /> })}
+        {renderTaskSection('Submitted For Review', managedInternTasks.filter(t => t.status === 'SUBMITTED'), { icon: <Zap size={13} />, headClass: 'task-section-new', always: true, emptyTitle: 'Review queue clear', emptyText: 'Intern submissions will appear here.' })}
+        {renderTaskSection('Intern Completed', managedInternTasks.filter(t => t.status === 'DONE'), { icon: <CheckCircle size={13} /> })}
+      </>
+    )
+  }
+
+  function renderCeoSections() {
+    return (
+      <>
+        {renderTaskSection('Review Queue', reviewQueue, { icon: <Zap size={13} />, headClass: 'task-section-new', always: true, emptyTitle: 'No submissions pending', emptyText: 'Submitted work will appear here for review.' })}
+        {renderTaskSection('Overdue Tasks', overdueTasks, { icon: <AlertCircle size={13} />, headClass: 'task-section-overdue' })}
+        {renderTaskSection('Founder Tasks', founderTasks.filter(t => t.status !== 'DONE'), { icon: <Users size={13} /> })}
+        {renderTaskSection('Intern Tasks', internTasks.filter(t => t.status !== 'DONE'), { icon: <Users size={13} /> })}
+        {renderTaskSection('Completed Tasks', completedTasks, { icon: <CheckCircle size={13} /> })}
+      </>
+    )
+  }
+
   return (
     <div className="tab-tasks">
       <div className="page-header">
@@ -776,127 +917,35 @@ function TasksTab({ dash, token, me, reload, notify }) {
         <div className="notice notice-error">Unable to load tasks. Please refresh or contact admin.</div>
       )}
 
-      {/* Search */}
-      <div className="task-search-wrap">
-        <Search size={15} className="task-search-icon" />
-        <input className="input task-search-input" placeholder="Search tasks..." value={q}
-          onChange={e => setQ(e.target.value)} />
+      {/* Search and filters */}
+      <div className="task-controls">
+        <div className="task-search-wrap">
+          <Search size={15} className="task-search-icon" />
+          <input className="input task-search-input" placeholder="Search tasks..." value={q}
+            onChange={e => setQ(e.target.value)} />
+        </div>
+        <select className="input task-filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          {taskStatuses.map(status => (
+            <option key={status} value={status}>{status === 'ALL' ? 'All statuses' : status.replace('_', ' ')}</option>
+          ))}
+        </select>
+        {!isIntern && (
+          <select className="input task-filter-select" value={userFilter} onChange={e => setUserFilter(e.target.value)}>
+            <option value="ALL">All people</option>
+            {taskFilterUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+          </select>
+        )}
       </div>
 
       {/* Task Lists */}
       <div className={`task-lists ${selectedTask ? 'with-panel' : ''}`}>
         <div className="task-main-col">
-
-          {/* NEW ASSIGNED — only if any */}
-          {newTasks.length > 0 && (
-            <div className="task-section">
-              <div className="task-section-head task-section-new">
-                <span className="task-section-label">
-                  <Zap size={13} /> New Assigned
-                </span>
-                <span className="task-section-count">{newTasks.length}</span>
-              </div>
-              {newTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
-                  onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
-                  isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
-                  isNew lastLoginDate={lastLoginDate} />
-              ))}
-            </div>
-          )}
-
-          {/* OVERDUE */}
-          {overdueTasks.length > 0 && (
-            <div className="task-section">
-              <div className="task-section-head task-section-overdue">
-                <span className="task-section-label">
-                  <AlertCircle size={13} /> Overdue
-                </span>
-                <span className="task-section-count">{overdueTasks.length}</span>
-              </div>
-              {overdueTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
-                  onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
-                  isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
-                  isOverdue />
-              ))}
-            </div>
-          )}
-
-          {/* DUE SOON */}
-          {dueSoonTasks.length > 0 && (
-            <div className="task-section">
-              <div className="task-section-head task-section-soon">
-                <span className="task-section-label">
-                  <Clock size={13} /> Due Soon
-                </span>
-                <span className="task-section-count">{dueSoonTasks.length}</span>
-              </div>
-              {dueSoonTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
-                  onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
-                  isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
-                  isDueSoon />
-              ))}
-            </div>
-          )}
-
-          {/* OPEN TASKS */}
-          {openTasks.length > 0 && (
-            <div className="task-section">
-              <div className="task-section-head">
-                <span className="task-section-label">Open Tasks</span>
-                <span className="task-section-count">{openTasks.length}</span>
-              </div>
-              {openTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
-                  onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
-                  isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id} />
-              ))}
-            </div>
-          )}
-
-          {/* Intern work managed by leadership */}
-          {internManagedTasks.length > 0 && (
-            <div className="task-section">
-              <div className="task-section-head">
-                <span className="task-section-label">Intern Tasks I Manage</span>
-                <span className="task-section-count">{internManagedTasks.length}</span>
-              </div>
-              {internManagedTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
-                  onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
-                  isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
-                  isManagedIntern />
-              ))}
-            </div>
-          )}
-
-          {/* COMPLETED */}
-          {completedTasks.length > 0 && (
-            <div className="task-section">
-              <button className="task-section-toggle" onClick={() => setShowCompleted(v => !v)}>
-                <span className="task-section-label">Completed</span>
-                <div className="task-section-toggle-right">
-                  <span className="task-section-count">{completedTasks.length}</span>
-                  <ChevronDown size={14} className={`toggle-icon ${showCompleted ? 'open' : ''}`} />
-                </div>
-              </button>
-              {showCompleted && completedTasks.map(t => (
-                <TaskRow key={t.id} task={t} userById={userById} me={safeMe} onOpen={() => openTask(t)}
-                  onSetStatus={setStatus} onDelete={deleteTask} canManage={canManage(t)}
-                  isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
-                  isDone />
-              ))}
-            </div>
-          )}
-
-          {/* Empty state */}
-          {sorted.filter(t => t.status !== 'DONE').length === 0 && !tasksLoading && (
+          {isIntern ? renderInternSections() : isFounder ? renderFounderSections() : renderCeoSections()}
+          {sorted.length === 0 && !tasksLoading && (
             <div className="tasks-empty">
               <CheckCircle size={32} className="tasks-empty-icon" />
-              <b>All clear</b>
-              <p>No open tasks. You're up to date.</p>
+              <b>No matching tasks</b>
+              <p>Try adjusting your filters or search.</p>
             </div>
           )}
           {tasksLoading && <div className="loading" style={{ padding: '20px' }}>Loading tasks...</div>}
@@ -1055,6 +1104,9 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
   const [submittingProof, setSubmittingProof] = useState(false)
   const [proofs, setProofs] = useState(Array.isArray(detail?.proofs) ? detail.proofs : Array.isArray(task?.proofs) ? task.proofs : [])
   const [proofError, setProofError] = useState('')
+  const [previewProof, setPreviewProof] = useState(null)
+  const [detailModerationReason, setDetailModerationReason] = useState('')
+  const [moderatingAssignee, setModeratingAssignee] = useState(false)
   const canSubmitProof = safeMe.role === 'CEO' || safeTask.assigned_to_id === safeMe.id
   const canUpdateStatus = safeMe.role === 'CEO' || safeTask.assigned_to_id === safeMe.id
 
@@ -1187,6 +1239,26 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
       notify(ex?.message || 'Unable to submit proof.', 'error')
     } finally {
       setSubmittingProof(false)
+    }
+  }
+
+  async function adjustAssigneeStrike(delta) {
+    const reason = detailModerationReason.trim()
+    if (!safeTask.assigned_to_id || safeMe.role !== 'CEO') return
+    if (!reason) {
+      notify('Add a moderation reason first.', 'error')
+      return
+    }
+    setModeratingAssignee(true)
+    try {
+      await rpc('moderate_strike_rpc', { p_token: token, p_target_user_id: safeTask.assigned_to_id, p_delta: delta, p_reason: reason })
+      setDetailModerationReason('')
+      await onProofSubmitted?.()
+      notify(delta > 0 ? 'Strike added' : 'Strike removed')
+    } catch (ex) {
+      notify(ex?.message || 'Unable to update strikes.', 'error')
+    } finally {
+      setModeratingAssignee(false)
     }
   }
 
@@ -1324,7 +1396,9 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
               </div>
               {p.note && <p className="proof-note">{p.note}</p>}
               {p.screenshot_data_url && (
-                <img className="proof-img" src={p.screenshot_data_url} alt="Proof screenshot" loading="lazy" />
+                <button className="proof-image-button" type="button" onClick={() => setPreviewProof(p)}>
+                  <img className="proof-img" src={p.screenshot_data_url} alt="Proof screenshot" loading="lazy" />
+                </button>
               )}
             </div>
           ))
@@ -1352,12 +1426,42 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
       {/* Danger Zone */}
       {safeMe.role === 'CEO' && (
         <div className="detail-danger">
+          <div className="detail-section moderation-panel task-detail-moderation">
+            <div className="detail-label"><Flame size={14} /> Assignee Moderation</div>
+            <textarea className="input" placeholder={`Reason for adjusting ${assignee}'s strikes`}
+              value={detailModerationReason} onChange={e => setDetailModerationReason(e.target.value)} />
+            <div className="moderation-actions">
+              <button className="btn btn-danger btn-sm" type="button" disabled={moderatingAssignee}
+                onClick={() => adjustAssigneeStrike(1)}>
+                <Flame size={14} /> Add Strike
+              </button>
+              <button className="btn btn-sm" type="button" disabled={moderatingAssignee}
+                onClick={() => adjustAssigneeStrike(-1)}>
+                Remove Strike
+              </button>
+            </div>
+          </div>
           <button className="btn btn-danger btn-sm" onClick={onDelete}>
             <Trash2 size={14} /> Delete this task
           </button>
         </div>
       )}
       </aside>
+      {previewProof && (
+        <div className="proof-viewer" role="dialog" aria-modal="true" aria-label="Proof preview" onClick={() => setPreviewProof(null)}>
+          <div className="proof-viewer-card" onClick={e => e.stopPropagation()}>
+            <div className="proof-viewer-head">
+              <div>
+                <b>{previewProof.user_name || 'Proof'}</b>
+                <span className="muted small">{timeAgo(previewProof.created_at)}</span>
+              </div>
+              <button className="icon-btn icon-btn-sm" type="button" onClick={() => setPreviewProof(null)} aria-label="Close proof preview"><X size={16} /></button>
+            </div>
+            {previewProof.note && <p className="proof-note">{previewProof.note}</p>}
+            <img src={previewProof.screenshot_data_url} alt="Expanded proof screenshot" />
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -1593,6 +1697,8 @@ function TeamTab({ dash, token, me, reload, notify }) {
   const [selectedUser, setSelectedUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loadingProfile, setLoadingProfile] = useState(false)
+  const [moderationReason, setModerationReason] = useState('')
+  const [moderatingStrike, setModeratingStrike] = useState(false)
 
   const people = dash.visible_users || []
   const founderRank = dash.founder_ranking || []
@@ -1606,6 +1712,29 @@ function TeamTab({ dash, token, me, reload, notify }) {
       setProfile(p)
     } catch (ex) { notify(ex.message, 'error'); setProfile(null) }
     finally { setLoadingProfile(false) }
+  }
+
+  async function adjustStrike(delta) {
+    if (!selectedUser?.id || me?.role !== 'CEO') return
+    const reason = moderationReason.trim()
+    if (!reason) {
+      notify('Add a moderation reason first.', 'error')
+      return
+    }
+    setModeratingStrike(true)
+    try {
+      await rpc('moderate_strike_rpc', { p_token: token, p_target_user_id: selectedUser.id, p_delta: delta, p_reason: reason })
+      setModerationReason('')
+      await reload()
+      const p = await rpc('get_person_profile', { p_token: token, p_user_id: selectedUser.id })
+      setProfile(p)
+      setSelectedUser(current => current ? { ...current, strikes: Math.max(0, Number(current.strikes || 0) + delta) } : current)
+      notify(delta > 0 ? 'Strike added' : 'Strike removed')
+    } catch (ex) {
+      notify(ex?.message || 'Unable to update strikes.', 'error')
+    } finally {
+      setModeratingStrike(false)
+    }
   }
 
   return (
@@ -1713,6 +1842,24 @@ function TeamTab({ dash, token, me, reload, notify }) {
                         <span className="muted small">{timeAgo(p.created_at)}</span>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {me?.role === 'CEO' && (
+                  <div className="profile-section moderation-panel">
+                    <h4>Moderation</h4>
+                    <textarea className="input" placeholder="Reason for strike adjustment"
+                      value={moderationReason} onChange={e => setModerationReason(e.target.value)} />
+                    <div className="moderation-actions">
+                      <button className="btn btn-danger btn-sm" type="button" disabled={moderatingStrike}
+                        onClick={() => adjustStrike(1)}>
+                        <Flame size={14} /> Add Strike
+                      </button>
+                      <button className="btn btn-sm" type="button" disabled={moderatingStrike}
+                        onClick={() => adjustStrike(-1)}>
+                        Remove Strike
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1917,4 +2064,8 @@ function getTimeGreeting() {
 
 // ─── Mount ────────────────────────────────────────────────────────────────────
 
-createRoot(document.getElementById('root')).render(<App />)
+createRoot(document.getElementById('root')).render(
+  <AppErrorBoundary>
+    <App />
+  </AppErrorBoundary>
+)
