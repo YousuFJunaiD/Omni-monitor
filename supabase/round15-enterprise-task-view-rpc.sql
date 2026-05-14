@@ -40,8 +40,7 @@ declare
   view_name text := coalesce(nullif(lower(p_view),''),'today');
   take_count int := least(greatest(coalesce(p_limit,80),1),200);
   skip_count int := greatest(coalesce(p_offset,0),0);
-  tasks_payload jsonb;
-  counts_payload jsonb;
+  payload jsonb;
 begin
   select * into me from private_user_from_token(p_token);
   if me.id is null then
@@ -82,6 +81,15 @@ begin
         and user_department(me) = user_department(u)
       )
   ),
+  filtered_tasks as (
+    select *
+    from visible_tasks
+    where
+      (view_name = 'today' and status not in ('DONE','SUBMITTED') and (due_date = current_date or due_date is null or due_date > current_date))
+      or (view_name = 'overdue' and due_date < current_date and status <> 'DONE')
+      or (view_name = 'review' and status = 'SUBMITTED')
+      or (view_name = 'history' and status = 'DONE')
+  ),
   counts as (
     select
       count(*) filter(where status not in ('DONE','SUBMITTED') and (due_date = current_date or due_date is null or due_date > current_date))::int today,
@@ -90,14 +98,9 @@ begin
       count(*) filter(where status = 'DONE')::int history
     from visible_tasks
   ),
-  selected as (
+  selected_tasks as (
     select *
-    from visible_tasks
-    where
-      (view_name = 'today' and status not in ('DONE','SUBMITTED') and (due_date = current_date or due_date is null or due_date > current_date))
-      or (view_name = 'overdue' and due_date < current_date and status <> 'DONE')
-      or (view_name = 'review' and status = 'SUBMITTED')
-      or (view_name = 'history' and status = 'DONE')
+    from filtered_tasks
     order by
       case when view_name = 'overdue' then due_date end asc,
       case when view_name = 'today' then due_date end asc nulls last,
@@ -107,58 +110,66 @@ begin
   minutes_by_task as (
     select tl.task_id, sum(tl.minutes)::int minutes_logged
     from time_logs tl
-    join selected s on s.id = tl.task_id
+    join selected_tasks st on st.id = tl.task_id
     group by tl.task_id
   ),
   proof_stats as (
     select p.task_id, count(*)::int proof_count, max(p.created_at) last_proof_at
     from proof_logs p
-    join selected s on s.id = p.task_id
+    join selected_tasks st on st.id = p.task_id
     group by p.task_id
+  ),
+  task_items as (
+    select jsonb_agg(jsonb_build_object(
+      'id',st.id,
+      'title',st.title,
+      'details',st.details,
+      'status',st.status,
+      'priority',st.priority,
+      'due_date',st.due_date,
+      'created_at',st.created_at,
+      'completed_at',st.completed_at,
+      'assigned_to_id',st.assigned_to,
+      'assigned_to_name',st.assigned_to_name,
+      'assigned_to',st.assigned_to_name,
+      'assignee_role',st.assignee_role,
+      'assignee_title',st.assignee_title,
+      'assignee_username',st.assignee_username,
+      'assigned_by_id',st.assigned_by,
+      'assigned_by_name',st.assigned_by_name,
+      'assigned_by_role',st.assigned_by_role,
+      'minutes_logged',coalesce(mbt.minutes_logged,0),
+      'minutes',coalesce(mbt.minutes_logged,0),
+      'proof_count',coalesce(ps.proof_count,0),
+      'last_proof_at',ps.last_proof_at
+    ) order by
+      case when view_name = 'overdue' then st.due_date end asc,
+      case when view_name = 'today' then st.due_date end asc nulls last,
+      st.created_at desc) tasks
+    from selected_tasks st
+    left join minutes_by_task mbt on mbt.task_id = st.id
+    left join proof_stats ps on ps.task_id = st.id
   )
-  select jsonb_agg(jsonb_build_object(
-    'id',s.id,
-    'title',s.title,
-    'details',s.details,
-    'status',s.status,
-    'priority',s.priority,
-    'due_date',s.due_date,
-    'created_at',s.created_at,
-    'completed_at',s.completed_at,
-    'assigned_to_id',s.assigned_to,
-    'assigned_to_name',s.assigned_to_name,
-    'assigned_to',s.assigned_to_name,
-    'assignee_role',s.assignee_role,
-    'assignee_title',s.assignee_title,
-    'assignee_username',s.assignee_username,
-    'assigned_by_id',s.assigned_by,
-    'assigned_by_name',s.assigned_by_name,
-    'assigned_by_role',s.assigned_by_role,
-    'minutes_logged',coalesce(mbt.minutes_logged,0),
-    'minutes',coalesce(mbt.minutes_logged,0),
-    'proof_count',coalesce(ps.proof_count,0),
-    'last_proof_at',ps.last_proof_at
-  ) order by
-    case when view_name = 'overdue' then s.due_date end asc,
-    case when view_name = 'today' then s.due_date end asc nulls last,
-    s.created_at desc)
-  into tasks_payload
-  from selected s
-  left join minutes_by_task mbt on mbt.task_id = s.id
-  left join proof_stats ps on ps.task_id = s.id;
-
-  select jsonb_build_object('today',today,'overdue',overdue,'review',review,'history',history)
-  into counts_payload
-  from counts;
-
-  return jsonb_build_object(
+  select jsonb_build_object(
     'ok',true,
     'view',view_name,
     'limit',take_count,
     'offset',skip_count,
-    'counts',coalesce(counts_payload,jsonb_build_object('today',0,'overdue',0,'review',0,'history',0)),
-    'tasks',coalesce(tasks_payload,'[]'::jsonb)
-  );
+    'counts',jsonb_build_object('today',c.today,'overdue',c.overdue,'review',c.review,'history',c.history),
+    'tasks',coalesce(ti.tasks,'[]'::jsonb)
+  )
+  into payload
+  from counts c
+  cross join task_items ti;
+
+  return coalesce(payload, jsonb_build_object(
+    'ok',true,
+    'view',view_name,
+    'limit',take_count,
+    'offset',skip_count,
+    'counts',jsonb_build_object('today',0,'overdue',0,'review',0,'history',0),
+    'tasks','[]'::jsonb
+  ));
 end; $$;
 
 create or replace function get_tasks_rpc(
