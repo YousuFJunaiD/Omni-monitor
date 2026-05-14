@@ -34,6 +34,26 @@ import {
 import {supabase, supabaseReady} from './supabase'
 import './styles.css'
 
+// ─── Phase 11: Brand placeholders ────────────────────────────────────────────
+// Single source of truth for client-facing strings. Replace these to white-label
+// the app for a new client. Phase 11 deliberately stops here — no organizations
+// table, no per-tenant override layer, no DB-backed branding. See SAAS_READINESS_ROADMAP.md.
+const BRAND_CONFIG = {
+  companyName: 'Omnimate',
+  productName: 'Omnimate Monitor',
+  logoMark: 'OM',
+  tagline: 'Execution control',
+  appHeading: 'Execution OS',
+  aiAssistantName: 'AI Executive',
+  defaultDepartments: {
+    frontend: 'Frontend',
+    backend: 'Backend'
+  },
+  financePlaceholderText:
+    'Financial and project tracking is reserved for a future phase. Connect your billing or PM system to populate this card.',
+  workspaceLabel: 'Operations'
+}
+
 const TOKEN_KEY = 'omnimate_session_token'
 const LEGACY_TOKEN_KEY = 'omnimart_session_token'
 const emptyDash = {
@@ -54,6 +74,26 @@ async function rpc(name, args) {
   if (error) throw error
   if (data?.ok === false) throw new Error(data.error || 'Request failed')
   return data
+}
+
+// Phase 11: classifies a /api/ai-analysis response into a UI-friendly mode.
+// Returns one of: 'active' (Ollama responded), 'fallback' (Ollama failed →
+// mock used), 'mock' (Ollama disabled by env), 'unavailable' (everything failed).
+function classifyAiMode(response) {
+  if (!response || response.ok === false) return 'unavailable'
+  if (response.fallback === true) return 'fallback'
+  if (response.provider === 'ollama') return 'active'
+  return 'mock'
+}
+
+function aiModeLabel(mode) {
+  switch (mode) {
+    case 'active': return 'AI Active'
+    case 'fallback': return 'Fallback Mode'
+    case 'mock': return 'Mock Mode'
+    case 'unavailable': return 'AI Unavailable'
+    default: return 'AI Checking…'
+  }
 }
 
 async function requestAiAnalysis(context) {
@@ -350,10 +390,10 @@ function Login({ onLogin }) {
     <div className="login-wrap">
       <div className="login-card">
         <div className="login-brand">
-          <div className="brand-mark">OM</div>
+          <div className="brand-mark">{BRAND_CONFIG.logoMark}</div>
           <div className="brand-text">
-            <h1>Omnimate</h1>
-            <p>Execution OS</p>
+            <h1>{BRAND_CONFIG.companyName}</h1>
+            <p>{BRAND_CONFIG.appHeading}</p>
           </div>
         </div>
         <p className="login-desc">Private workspace for the team.</p>
@@ -394,16 +434,16 @@ const NAV = [
   { id: 'more',   label: 'More',   icon: MoreHorizontal },
 ]
 
-function NavBar({ tab, setTab, me, unreadNotif, onLogout }) {
+function NavBar({ tab, setTab, me, unreadNotif, onLogout, aiMode = 'checking' }) {
   const currentPage = NAV.find(n => n.id === tab)?.label || 'Home'
 
   return (
     <nav className="navbar" aria-label="Primary navigation">
       <div className="nav-brand">
-        <div className="nav-logo">OM</div>
+        <div className="nav-logo">{BRAND_CONFIG.logoMark}</div>
         <div className="nav-brand-copy">
-          <span className="nav-title">Omnimate Monitor</span>
-          <span className="nav-subtitle">Execution control</span>
+          <span className="nav-title">{BRAND_CONFIG.productName}</span>
+          <span className="nav-subtitle">{BRAND_CONFIG.tagline}</span>
         </div>
       </div>
       <div className="mobile-app-title" aria-live="polite">
@@ -412,7 +452,7 @@ function NavBar({ tab, setTab, me, unreadNotif, onLogout }) {
       </div>
       <div className="nav-context" aria-label="Workspace">
         <span>Workspace</span>
-        <strong>{me?.title || 'Operations'}</strong>
+        <strong>{me?.title || BRAND_CONFIG.workspaceLabel}</strong>
       </div>
       <span className="nav-group-label">Operate</span>
       <div className="nav-items">
@@ -426,6 +466,10 @@ function NavBar({ tab, setTab, me, unreadNotif, onLogout }) {
         ))}
       </div>
       <div className="nav-user">
+        <span className={`ai-mode-pill ai-mode-${aiMode}`} title={`AI provider: ${aiModeLabel(aiMode)}`}>
+          <span className="ai-mode-dot" />
+          <span className="ai-mode-text">{aiModeLabel(aiMode)}</span>
+        </span>
         <div className="user-info">
           <span className="user-name">{me?.name?.split(' ')[0]}</span>
           <span className="user-role">{displayRole(me?.role)}</span>
@@ -446,6 +490,22 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [booting, setBooting] = useState(Boolean(localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY)))
   const [toast, setToast] = useState(null)
+  // Phase 11: detect AI provider state once at app boot. We probe the
+  // /api/ai-analysis endpoint with a minimal payload — the response shape
+  // tells us whether Ollama is reachable, falling back to mock, or off.
+  const [aiMode, setAiMode] = useState('checking')
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/ai-analysis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ context: { probe: true, insights: [] } })
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (!cancelled) setAiMode(classifyAiMode(data)) })
+      .catch(() => { if (!cancelled) setAiMode('unavailable') })
+    return () => { cancelled = true }
+  }, [])
   // Phase 8: cross-tab navigation for actionable notifications.
   const [pendingTaskId, setPendingTaskId] = useState(null)
   const goToTask = useCallback((taskId) => {
@@ -510,12 +570,12 @@ function App() {
 
   return (
     <div className="app-shell">
-      <NavBar tab={tab} setTab={setTab} me={dash.me} unreadNotif={dash.unread_notifications || 0} onLogout={logout} />
+      <NavBar tab={tab} setTab={setTab} me={dash.me} unreadNotif={dash.unread_notifications || 0} onLogout={logout} aiMode={aiMode} />
       <main className="app-content">
         {err && <div className="notice notice-error">{err}</div>}
         {loading && <div className="loading-bar"><span /></div>}
         <TabErrorBoundary resetKey={tab} message={tab === 'tasks' ? 'Unable to load tasks.' : 'Unable to load this section.'}>
-          {tab === 'home'   && <HomeTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
+          {tab === 'home'   && <HomeTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} aiMode={aiMode} />}
           {tab === 'tasks' && <TasksTab  dash={dash} token={token} me={dash.me} reload={load} notify={notify} pendingTaskId={pendingTaskId} clearPendingTaskId={clearPendingTaskId} />}
           {tab === 'ideas' && <IdeasTab  dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
           {tab === 'team'  && <TeamTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
@@ -568,22 +628,189 @@ function StrikeBadge({ count = 0 }) {
     : null
 }
 
+// ─── Phase 11: Executive Note rule-based generator + UI card ─────────────────
+// Produces a concise per-role summary from REAL dashboard data. If AI is
+// available, the caller can enhance the rule-based note via /api/ai-analysis.
+// We never invent data — every sentence cites a count or a name from `dash`.
+
+function buildExecutiveNote(role, dash, me) {
+  const r = String(role || '').toUpperCase()
+  const overdue = dash?.attention_overdue || []
+  const needsReview = dash?.attention_needs_review || []
+  const blocked = dash?.attention_blocked || []
+  const proofFeed = dash?.proof_feed || []
+  const visibleUsers = dash?.visible_users || []
+  const internRank = dash?.intern_ranking || []
+  const myId = me?.id
+
+  if (r === 'CEO') {
+    // Inactive members: users with role INTERN/FOUNDER who have no activity in 7+ days.
+    // We derive a proxy from intern_ranking: rows with done=0 AND submissions=0 AND total>0
+    // in the last reporting window. If that array is empty, we say so.
+    const inactive = internRank.filter(x =>
+      (Number(x.done) || 0) === 0 &&
+      (Number(x.submissions) || 0) === 0 &&
+      (Number(x.total) || 0) > 0
+    )
+    const totalStrikes = visibleUsers.reduce((s, u) => s + Number(u.strikes || 0), 0)
+    const sentences = []
+    if (overdue.length === 0 && needsReview.length === 0 && blocked.length === 0) {
+      sentences.push('Execution looks clean across all queues right now.')
+    } else {
+      sentences.push(
+        `Currently ${overdue.length} task${overdue.length === 1 ? '' : 's'} overdue, ` +
+        `${needsReview.length} awaiting review, ${blocked.length} blocked.`
+      )
+    }
+    if (totalStrikes > 0) sentences.push(`${totalStrikes} active strike${totalStrikes === 1 ? '' : 's'} on file.`)
+    if (inactive.length > 0) {
+      sentences.push(
+        `${inactive.length} member${inactive.length === 1 ? ' has' : 's have'} no activity this cycle: ` +
+        inactive.slice(0, 3).map(x => x.name).join(', ') +
+        (inactive.length > 3 ? `, +${inactive.length - 3} more` : '') + '.'
+      )
+    }
+    // Top priority action
+    if (overdue.length > 0) {
+      sentences.push(`Top priority: clear ${overdue[0]?.title || 'the oldest overdue task'} (${overdue[0]?.assigned_to_name || 'unassigned'}).`)
+    } else if (needsReview.length >= 3) {
+      sentences.push(`Top priority: assign a reviewer for the ${needsReview.length} pending submissions.`)
+    } else if (blocked.length > 0) {
+      sentences.push(`Top priority: unblock ${blocked[0]?.title || 'the first blocked task'}.`)
+    }
+    return sentences.join(' ')
+  }
+
+  if (r === 'FOUNDER' || r === 'BOARD') {
+    const myDept = userDepartment(me)
+    const deptInternIds = new Set(
+      visibleUsers
+        .filter(u => userDepartment(u) === myDept && String(u.role || '').toUpperCase() === 'INTERN')
+        .map(u => u.id)
+    )
+    const deptOverdue = overdue.filter(t => deptInternIds.has(t.assigned_to_id))
+    const deptReview = needsReview.filter(t => deptInternIds.has(t.assigned_to_id))
+    const deptBlocked = blocked.filter(t => deptInternIds.has(t.assigned_to_id))
+    const deptName = myDept ? (BRAND_CONFIG.defaultDepartments[myDept] || myDept) : 'your team'
+    const sentences = []
+    sentences.push(`${deptName} has ${deptInternIds.size} intern${deptInternIds.size === 1 ? '' : 's'} active.`)
+    if (deptOverdue.length === 0 && deptReview.length === 0 && deptBlocked.length === 0) {
+      sentences.push('Queues are clear; no immediate actions required.')
+    } else {
+      sentences.push(
+        `${deptOverdue.length} overdue, ${deptReview.length} pending review, ${deptBlocked.length} blocked in your department.`
+      )
+    }
+    // Recommended next action
+    if (deptReview.length > 0) {
+      sentences.push(`Recommended next: review ${deptReview[0]?.title || 'the oldest submission'} from ${deptReview[0]?.assigned_to_name || 'your team'}.`)
+    } else if (deptOverdue.length > 0) {
+      sentences.push(`Recommended next: follow up with ${deptOverdue[0]?.assigned_to_name || 'the assignee'} on ${deptOverdue[0]?.title || 'the oldest overdue task'}.`)
+    } else if (deptBlocked.length > 0) {
+      sentences.push(`Recommended next: unblock ${deptBlocked[0]?.title || 'the stalled task'}.`)
+    }
+    return sentences.join(' ')
+  }
+
+  // Intern
+  const myOverdue = overdue.filter(t => t.assigned_to_id === myId)
+  const myReview = needsReview.filter(t => t.assigned_to_id === myId)
+  const myBlocked = blocked.filter(t => t.assigned_to_id === myId)
+  const sentences = []
+  if (myOverdue.length === 0 && myReview.length === 0 && myBlocked.length === 0) {
+    sentences.push('You are clear right now — no overdue, pending review, or blocked tasks.')
+  } else {
+    sentences.push(
+      `You have ${myOverdue.length} overdue, ${myReview.length} awaiting review, ${myBlocked.length} blocked.`
+    )
+  }
+  // Focus next
+  if (myOverdue.length > 0) {
+    sentences.push(`Focus next on: ${myOverdue[0]?.title || 'the oldest overdue task'}${myOverdue[0]?.due_date ? ` (was due ${myOverdue[0].due_date})` : ''}.`)
+  } else if (myReview.length > 0) {
+    sentences.push(`Awaiting reviewer on: ${myReview[0]?.title || 'your latest submission'}.`)
+  } else if (myBlocked.length > 0) {
+    sentences.push(`Resolve the blocker on: ${myBlocked[0]?.title || 'your blocked task'}.`)
+  }
+  return sentences.join(' ')
+}
+
+const ExecutiveNote = memo(function ExecutiveNote({ role, dash, me, aiMode = 'checking' }) {
+  // Rule-based note is produced synchronously from real dash data. AI enhancement
+  // is best-effort and silently disabled when aiMode !== 'active'. We never block
+  // the UI on the AI call — the rule-based text is shown immediately.
+  const baseNote = useMemo(() => buildExecutiveNote(role, dash, me), [role, dash, me])
+  const [aiNote, setAiNote] = useState('')
+  const [aiTried, setAiTried] = useState(false)
+
+  // Determine if we should attempt an AI enhancement. Skip for INTERN (per
+  // master plan: AI insights are a leadership concern) and skip if AI is not
+  // in the 'active' state.
+  const r = String(role || '').toUpperCase()
+  const shouldTryAi = (r === 'CEO' || r === 'FOUNDER' || r === 'BOARD') && aiMode === 'active'
+
+  useEffect(() => {
+    if (!shouldTryAi || aiTried) return
+    setAiTried(true)
+    const context = {
+      probe: false,
+      role: r,
+      base_note: baseNote,
+      counts: {
+        overdue: (dash?.attention_overdue || []).length,
+        needs_review: (dash?.attention_needs_review || []).length,
+        blocked: (dash?.attention_blocked || []).length
+      }
+    }
+    requestAiAnalysis(context)
+      .then(res => {
+        if (res?.ok && res.summary && res.provider === 'ollama') setAiNote(String(res.summary).trim())
+      })
+      .catch(() => { /* fall back silently to rule-based */ })
+  }, [shouldTryAi, aiTried, baseNote, r, dash])
+
+  const isAi = Boolean(aiNote)
+  const sourceLabel = isAi
+    ? 'AI'
+    : aiMode === 'fallback' ? 'Fallback'
+    : aiMode === 'unavailable' ? 'Fallback'
+    : 'Rule-based'
+  const sourceTitle =
+    isAi ? 'Generated by your configured AI provider' :
+    aiMode === 'fallback' ? 'AI provider unreachable — showing rule-based summary' :
+    aiMode === 'unavailable' ? 'AI provider unavailable — showing rule-based summary' :
+    'Generated locally from real dashboard data (no AI call)'
+
+  return (
+    <section className={`exec-note ${isAi ? 'exec-note-ai' : 'exec-note-rule'}`} aria-label="Executive note">
+      <div className="exec-note-head">
+        <div className="exec-note-title">
+          <Zap size={14} />
+          <span>{BRAND_CONFIG.aiAssistantName}</span>
+        </div>
+        <span className="exec-note-source" title={sourceTitle}>{sourceLabel}</span>
+      </div>
+      <p className="exec-note-body">{aiNote || baseNote}</p>
+    </section>
+  )
+})
+
 // ─── HOME TAB (role dispatcher) ──────────────────────────────────────────────
 // Phase 6: role-specific dashboards. Production entry — see FRONTEND_ARCHITECTURE.md.
 // Dispatches to CEO / Founder / Intern views based on me.role. Each view reuses
 // existing rpc() helper and the get_dashboard payload already loaded by App().
 // No new SQL — only frontend composition over Phases 1–5 RPCs.
 
-function HomeTab({ dash, token, me, reload, notify }) {
+function HomeTab({ dash, token, me, reload, notify, aiMode = 'checking' }) {
   const role = String(me?.role || '').toUpperCase()
   if (role === 'CEO') {
-    return <CeoHomeView dash={dash} token={token} me={me} reload={reload} notify={notify} />
+    return <CeoHomeView dash={dash} token={token} me={me} reload={reload} notify={notify} aiMode={aiMode} />
   }
   if (role === 'FOUNDER' || role === 'BOARD') {
-    return <FounderHomeView dash={dash} token={token} me={me} reload={reload} notify={notify} />
+    return <FounderHomeView dash={dash} token={token} me={me} reload={reload} notify={notify} aiMode={aiMode} />
   }
   // INTERN or anything unrecognized → intern execution view (least-privilege fallback)
-  return <InternHomeView dash={dash} token={token} me={me} reload={reload} notify={notify} />
+  return <InternHomeView dash={dash} token={token} me={me} reload={reload} notify={notify} aiMode={aiMode} />
 }
 
 // ── Shared helpers for role views ────────────────────────────────────────────
@@ -791,7 +1018,7 @@ const AttentionColumn = memo(function AttentionColumn({ icon, title, items, empt
 
 // ── CEO VIEW ─────────────────────────────────────────────────────────────────
 
-function CeoHomeView({ dash, token, me, reload, notify }) {
+function CeoHomeView({ dash, token, me, reload, notify, aiMode = 'checking' }) {
   const [applyingStrikes, setApplyingStrikes] = useState(false)
   const [generatingReport, setGeneratingReport] = useState(false)
   const { items: feedItems, loading: feedLoading, error: feedError, hasMore: feedHasMore, offset: feedOffset, load: loadFeed } = useActivityFeed(token)
@@ -896,6 +1123,8 @@ function CeoHomeView({ dash, token, me, reload, notify }) {
           </button>
         </div>
       </div>
+
+      <ExecutiveNote role="CEO" dash={dash} me={me} aiMode={aiMode} />
 
       <div className="dashboard-section-label">Operational snapshot</div>
       <div className="stats-row">
@@ -1075,7 +1304,7 @@ function CeoHomeView({ dash, token, me, reload, notify }) {
         </div>
         <div className="panel finance-placeholder">
           <SectionHead icon={<Activity size={16} />} title="Financial / project tracking" />
-          <p className="muted">Reserved for a later phase. No financial or project schema exists yet — adding it here without backing tables would conflict with the master plan's "no random features" rule.</p>
+          <p className="muted">{BRAND_CONFIG.financePlaceholderText}</p>
         </div>
       </div>
 
@@ -1097,7 +1326,7 @@ function CeoHomeView({ dash, token, me, reload, notify }) {
 
 // ── FOUNDER / DEPT-HEAD VIEW ─────────────────────────────────────────────────
 
-function FounderHomeView({ dash, token, me, reload, notify }) {
+function FounderHomeView({ dash, token, me, reload, notify, aiMode = 'checking' }) {
   const myDept = userDepartment(me)
   const { items: feedItems, loading: feedLoading, error: feedError, hasMore: feedHasMore, offset: feedOffset, load: loadFeed } = useActivityFeed(token)
   const { insights, loading: insightsLoading } = useAiInsights(token, me?.role)
@@ -1151,6 +1380,8 @@ function FounderHomeView({ dash, token, me, reload, notify }) {
           <p className="page-subtitle">{me?.title} · {displayRole(me?.role)}{myDept ? ` · ${myDept} department` : ''}</p>
         </div>
       </div>
+
+      <ExecutiveNote role="FOUNDER" dash={dash} me={me} aiMode={aiMode} />
 
       <div className="dashboard-section-label">Department snapshot</div>
       <div className="stats-row">
@@ -1278,7 +1509,7 @@ function FounderHomeView({ dash, token, me, reload, notify }) {
 
 // ── INTERN VIEW ──────────────────────────────────────────────────────────────
 
-function InternHomeView({ dash, token, me, reload, notify }) {
+function InternHomeView({ dash, token, me, reload, notify, aiMode = 'checking' }) {
   const [focusMode, setFocusMode] = useState(false)
 
   const allOverdue = dash.attention_overdue || []
@@ -1340,6 +1571,8 @@ function InternHomeView({ dash, token, me, reload, notify }) {
           {focusMode ? 'Exit focus mode' : 'Focus mode'}
         </button>
       </div>
+
+      <ExecutiveNote role="INTERN" dash={dash} me={me} aiMode={aiMode} />
 
       <div className="dashboard-section-label">My snapshot</div>
       <div className="stats-row">

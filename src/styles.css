@@ -6369,3 +6369,200 @@ textarea {
   .admin-audit-time { text-align: left; }
 }
 /* ─── End Phase 9 ─────────────────────────────────────────────────────────── */
+
+/* ─── Phase 11: AI mode pill, Executive note, premium polish ─────────────── */
+
+/* AI mode pill in NavBar */
+.ai-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.ai-mode-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--text-3);
+}
+.ai-mode-active {
+  background: rgba(22, 163, 74, 0.08);
+  border-color: rgba(22, 163, 74, 0.25);
+  color: var(--success);
+}
+.ai-mode-active .ai-mode-dot { background: var(--success); box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15); }
+.ai-mode-fallback {
+  background: rgba(217, 119, 6, 0.08);
+  border-color: rgba(217, 119, 6, 0.25);
+  color: var(--accent-2);
+}
+.ai-mode-fallback .ai-mode-dot { background: var(--accent-2); }
+.ai-mode-mock {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-3);
+}
+.ai-mode-mock .ai-mode-dot { background: var(--text-3); }
+.ai-mode-unavailable {
+  background: rgba(220, 38, 38, 0.06);
+  border-color: rgba(220, 38, 38, 0.20);
+  color: var(--danger);
+}
+.ai-mode-unavailable .ai-mode-dot { background: var(--danger); }
+.ai-mode-checking { color: var(--text-3); }
+.ai-mode-checking .ai-mode-dot {
+  background: var(--text-3);
+  animation: ai-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ai-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+@media (max-width: 700px) {
+  .ai-mode-pill .ai-mode-text { display: none; }
+  .ai-mode-pill { padding: 4px 6px; }
+}
+
+/* Executive Note card — premium top-of-dashboard summary */
+.exec-note {
+  margin-bottom: 18px;
+  padding: 16px 20px;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+.exec-note::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  opacity: 0.7;
+}
+.exec-note-ai::before { background: var(--success); }
+.exec-note-rule::before { background: var(--accent); }
+.exec-note-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.exec-note-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.exec-note-title svg { color: var(--accent); }
+.exec-note-source {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-3);
+  border: 1px solid var(--border-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.exec-note-ai .exec-note-source {
+  background: rgba(22, 163, 74, 0.08);
+  color: var(--success);
+  border-color: rgba(22, 163, 74, 0.25);
+}
+.exec-note-body {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+  margin: 0;
+}
+
+/* Premium polish — light-theme refinements to existing components.
+   These rules are added LAST so they win the cascade against earlier rules
+   without rewriting them. Strictly visual; no layout/structure changes. */
+
+/* Panels: soft shadow + cleaner hover, ONLY for the active product layer.
+   The scoping uses .app-shell to avoid touching the dormant routes. */
+.app-shell .panel {
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+.app-shell .panel:hover {
+  box-shadow: var(--shadow);
+}
+.app-shell .stat-card {
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+.app-shell .stat-card:hover {
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+
+/* Section heads — premium hierarchy */
+.app-shell .section-head h2 {
+  font-size: 15px;
+  letter-spacing: -0.005em;
+}
+.app-shell .dashboard-section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+  color: var(--text-3);
+  font-weight: 700;
+  margin: 18px 4px 10px;
+}
+
+/* Primary buttons get a subtle premium shadow */
+.app-shell .btn-primary {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 1px 3px rgba(37, 99, 235, 0.18);
+}
+.app-shell .btn-primary:hover {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(37, 99, 235, 0.25);
+}
+
+/* Page header polish */
+.app-shell .page-title {
+  font-weight: 700;
+  letter-spacing: -0.018em;
+}
+.app-shell .page-eyebrow {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+}
+
+/* Empty states feel less stark */
+.app-shell .attention-empty {
+  color: var(--text-3);
+  font-size: 12px;
+  padding: 14px 12px;
+}
+
+/* Notification rows premium tweak */
+.app-shell .notif-item {
+  box-shadow: var(--shadow-sm);
+}
+.app-shell .notif-item.notif-unread {
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.10), 0 4px 14px rgba(37, 99, 235, 0.06);
+}
+
+/* Admin panel stats get the same shadow treatment */
+.app-shell .admin-stat {
+  box-shadow: var(--shadow-sm);
+}
+/* ─── End Phase 11 ────────────────────────────────────────────────────────── */
