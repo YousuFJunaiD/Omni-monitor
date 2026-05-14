@@ -741,6 +741,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
         if (!cancelled) setTasks(arrayFromRpc(data, ['tasks', 'task_list', 'items']).map(normalizeTaskForUi))
       })
       .catch(ex => {
+        console.error('get_tasks_rpc failed:', ex)
         if (!cancelled) {
           setTaskError(ex?.message || 'Unable to load tasks. Please refresh or contact admin.')
           setTasks([])
