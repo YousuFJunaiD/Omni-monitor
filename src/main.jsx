@@ -56,6 +56,16 @@ async function rpc(name, args) {
   return data
 }
 
+async function requestAiAnalysis(context) {
+  const response = await fetch('/api/ai-analysis', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ context })
+  })
+  if (!response.ok) return { ok: false, error: `AI API failed: ${response.status}` }
+  return response.json()
+}
+
 function downloadJson(name, data) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
   const a = document.createElement('a')
@@ -1510,8 +1520,15 @@ function AssignModal({ token, users, me, onClose, onCreated, notify }) {
       .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')) || String(a.name || '').localeCompare(String(b.name || '')))
   }, [users, me])
 
-  const [f, setF] = useState({ title: '', details: '', assigned_to: '', priority: 'HIGH', due_date: '' })
+  const [f, setF] = useState({
+    title: '', details: '', assigned_to: '', priority: 'HIGH', due_date: '',
+    recurrence: 'ONE_TIME', recurrence_days: [], start_date: '', end_date: '', deadline_time: ''
+  })
   const [saving, setSaving] = useState(false)
+  const weekDays = [
+    ['Monday', 1], ['Tuesday', 2], ['Wednesday', 3], ['Thursday', 4],
+    ['Friday', 5], ['Saturday', 6], ['Sunday', 7]
+  ]
 
   if (me?.role === 'INTERN') return null
 
@@ -1520,13 +1537,37 @@ function AssignModal({ token, users, me, onClose, onCreated, notify }) {
     if (!f.assigned_to || !f.title.trim()) return
     setSaving(true)
     try {
-      const result = await rpc('create_task_rpc', {
-        p_token: token, p_title: f.title, p_details: f.details,
-        p_assigned_to: f.assigned_to, p_priority: f.priority, p_due_date: f.due_date || null
-      })
-      onCreated(result.id)
+      if (f.recurrence === 'ONE_TIME') {
+        const result = await rpc('create_task_rpc', {
+          p_token: token, p_title: f.title, p_details: f.details,
+          p_assigned_to: f.assigned_to, p_priority: f.priority, p_due_date: f.due_date || null
+        })
+        onCreated(result.id)
+      } else {
+        const result = await rpc('create_recurring_task_rpc', {
+          p_token: token,
+          p_title: f.title,
+          p_details: f.details,
+          p_assigned_to: f.assigned_to,
+          p_priority: f.priority,
+          p_recurrence_type: f.recurrence === 'DAILY' ? 'DAILY' : 'WEEKLY_DAYS',
+          p_recurrence_days: f.recurrence === 'WEEKLY_DAYS' ? f.recurrence_days : [],
+          p_start_date: f.start_date || f.due_date || new Date().toISOString().slice(0, 10),
+          p_end_date: f.end_date || null,
+          p_deadline_time: f.deadline_time || null
+        })
+        notify(`Created ${result.created_count || 0} recurring task${result.created_count === 1 ? '' : 's'}`)
+        onCreated(result.id)
+      }
     } catch (ex) { notify(ex.message, 'error') }
     finally { setSaving(false) }
+  }
+
+  function toggleWeekDay(day) {
+    setF(current => {
+      const hasDay = current.recurrence_days.includes(day)
+      return { ...current, recurrence_days: hasDay ? current.recurrence_days.filter(d => d !== day) : [...current.recurrence_days, day].sort() }
+    })
   }
 
   return (
@@ -1576,8 +1617,50 @@ function AssignModal({ token, users, me, onClose, onCreated, notify }) {
                 onChange={e => setF({ ...f, due_date: e.target.value })} />
             </div>
           </div>
+          <div className="field">
+            <label>Recurrence</label>
+            <select className="input" value={f.recurrence} onChange={e => setF({ ...f, recurrence: e.target.value })}>
+              <option value="ONE_TIME">One-time task</option>
+              <option value="DAILY">Daily</option>
+              <option value="WEEKLY_DAYS">Specific days of week</option>
+            </select>
+          </div>
+          {f.recurrence !== 'ONE_TIME' && (
+            <>
+              <div className="modal-row">
+                <div className="field">
+                  <label>Start date *</label>
+                  <input className="input" type="date" required value={f.start_date}
+                    onChange={e => setF({ ...f, start_date: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label>End date</label>
+                  <input className="input" type="date" value={f.end_date}
+                    onChange={e => setF({ ...f, end_date: e.target.value })} />
+                </div>
+              </div>
+              <div className="field">
+                <label>Deadline time</label>
+                <input className="input" type="time" value={f.deadline_time}
+                  onChange={e => setF({ ...f, deadline_time: e.target.value })} />
+              </div>
+            </>
+          )}
+          {f.recurrence === 'WEEKLY_DAYS' && (
+            <div className="field">
+              <label>Days</label>
+              <div className="weekday-grid">
+                {weekDays.map(([label, value]) => (
+                  <label key={value} className="weekday-check">
+                    <input type="checkbox" checked={f.recurrence_days.includes(value)} onChange={() => toggleWeekDay(value)} />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <button className="btn btn-primary btn-full" type="submit" disabled={saving}>
-            {saving ? 'Creating...' : 'Create Task'}
+            {saving ? 'Creating...' : f.recurrence === 'ONE_TIME' ? 'Create Task' : 'Create Recurring Tasks'}
           </button>
         </form>
       </div>
@@ -1735,19 +1818,86 @@ function TeamTab({ dash, token, me, reload, notify }) {
   const [loadingProfile, setLoadingProfile] = useState(false)
   const [moderationReason, setModerationReason] = useState('')
   const [moderatingStrike, setModeratingStrike] = useState(false)
+  const [rankings, setRankings] = useState(null)
+  const [rankingLoading, setRankingLoading] = useState(false)
+  const [aiNotes, setAiNotes] = useState([])
+  const [aiNoteLoading, setAiNoteLoading] = useState(false)
+  const [aiNoteGenerating, setAiNoteGenerating] = useState(false)
 
   const people = dash.visible_users || []
-  const founderRank = dash.founder_ranking || []
-  const internRank = dash.intern_ranking || []
+  const founderRank = rankings?.founder_ranking || dash.founder_ranking || []
+  const internRank = rankings?.intern_ranking || dash.intern_ranking || []
+  const departmentRank = rankings?.department_rankings || []
+
+  useEffect(() => {
+    let cancelled = false
+    setRankingLoading(true)
+    rpc('get_rankings_rpc', { p_token: token })
+      .then(data => { if (!cancelled) setRankings(data) })
+      .catch(ex => notify(ex?.message || 'Unable to load rankings', 'error'))
+      .finally(() => { if (!cancelled) setRankingLoading(false) })
+    return () => { cancelled = true }
+  }, [token])
 
   async function viewProfile(user) {
     setSelectedUser(user)
     setLoadingProfile(true)
+    setAiNotes([])
     try {
       const p = await rpc('get_person_profile', { p_token: token, p_user_id: user.id })
       setProfile(p)
+      await loadAiNotes(user.id)
     } catch (ex) { notify(ex.message, 'error'); setProfile(null) }
     finally { setLoadingProfile(false) }
+  }
+
+  async function loadAiNotes(userId) {
+    if (!userId) return
+    setAiNoteLoading(true)
+    try {
+      const data = await rpc('get_ai_work_notes_rpc', { p_token: token, p_user_id: userId })
+      setAiNotes(Array.isArray(data.notes) ? data.notes : [])
+    } catch {
+      setAiNotes([])
+    } finally {
+      setAiNoteLoading(false)
+    }
+  }
+
+  async function generateAiNote() {
+    if (!selectedUser?.id) return
+    setAiNoteGenerating(true)
+    try {
+      const context = {
+        user: selectedUser,
+        profile: {
+          stats: profile?.user,
+          recent_tasks: profile?.tasks || [],
+          recent_proofs: profile?.recent_proofs || []
+        }
+      }
+      const ai = await requestAiAnalysis(context).catch(() => ({ ok: false }))
+      const data = await rpc('generate_ai_work_note_rpc', {
+        p_token: token,
+        p_user_id: selectedUser.id,
+        p_period: 'recent',
+        p_note: ai.ok ? ai.summary : null,
+        p_raw_summary: { ai_enabled: Boolean(ai.ai_enabled), ai_error: ai.error || null }
+      })
+      setAiNotes(current => data.note ? [data.note, ...current] : current)
+      notify(ai.ok ? 'AI work note generated' : 'Metrics note saved. AI is disabled or unavailable.')
+    } catch (ex) {
+      notify(ex?.message || 'Unable to generate note', 'error')
+    } finally {
+      setAiNoteGenerating(false)
+    }
+  }
+
+  function canGenerateAiNoteFor(user) {
+    if (!user?.id) return false
+    if (me?.role === 'CEO') return true
+    if (user.id === me?.id) return true
+    return canManageInternForUser(me, user)
   }
 
   async function adjustStrike(delta) {
@@ -1815,7 +1965,7 @@ function TeamTab({ dash, token, me, reload, notify }) {
                 <h3>{selectedUser.name}</h3>
                 <p className="muted">{selectedUser.title} · {displayRole(selectedUser.role)}</p>
               </div>
-              <button className="icon-btn icon-btn-sm" onClick={() => { setSelectedUser(null); setProfile(null) }}>
+              <button className="icon-btn icon-btn-sm" onClick={() => { setSelectedUser(null); setProfile(null); setAiNotes([]) }}>
                 <X size={16} />
               </button>
             </div>
@@ -1881,6 +2031,27 @@ function TeamTab({ dash, token, me, reload, notify }) {
                   </div>
                 )}
 
+                <div className="profile-section ai-note-panel">
+                  <div className="profile-section-head">
+                    <h4>AI Work Note</h4>
+                    {canGenerateAiNoteFor(selectedUser) && (
+                      <button className="btn btn-sm" type="button" disabled={aiNoteGenerating} onClick={generateAiNote}>
+                        <Zap size={13} /> {aiNoteGenerating ? 'Generating...' : 'Generate Note'}
+                      </button>
+                    )}
+                  </div>
+                  {aiNoteLoading ? (
+                    <p className="muted small">Loading notes...</p>
+                  ) : aiNotes.length > 0 ? (
+                    <div className="ai-note-card">
+                      <p>{aiNotes[0].note}</p>
+                      <span className="muted small">{timeAgo(aiNotes[0].created_at)}</span>
+                    </div>
+                  ) : (
+                    <p className="muted small">No AI work note generated yet.</p>
+                  )}
+                </div>
+
                 {me?.role === 'CEO' && (
                   <div className="profile-section moderation-panel">
                     <h4>Moderation</h4>
@@ -1907,6 +2078,27 @@ function TeamTab({ dash, token, me, reload, notify }) {
       </div>
 
       {/* Rankings */}
+      {rankingLoading && me.role !== 'INTERN' && <div className="loading">Updating rankings...</div>}
+
+      {departmentRank.length > 0 && me.role !== 'INTERN' && (
+        <div className="panel ranking-panel">
+          <SectionHead icon={<Activity size={16} />} title="Department Rankings" />
+          <div className="ranking-list">
+            {departmentRank.map(r => (
+              <div key={r.department} className="rank-row">
+                <div className="rank-pos">{r.department === 'frontend' ? 'FE' : 'BE'}</div>
+                <div className="rank-info">
+                  <b>{r.department === 'frontend' ? 'Frontend Interns' : 'Backend Interns'}</b>
+                  <span className="muted small">{r.completed} completed · {r.submissions} submissions · {r.overdue} overdue</span>
+                </div>
+                <StrikeBadge count={r.strikes} />
+                <div className="rank-score">{r.score}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {founderRank.length > 0 && me.role !== 'INTERN' && (
         <div className="panel ranking-panel">
           <SectionHead icon={<Trophy size={16} />} title="Founding Member Rankings" />
@@ -1916,7 +2108,10 @@ function TeamTab({ dash, token, me, reload, notify }) {
                 <div className="rank-pos">#{r.rank}</div>
                 <div className="rank-info">
                   <b>{r.name}</b>
-                  <span className="muted small">{r.title} · {r.done}/{r.total} done</span>
+                  <span className="muted small">
+                    {r.title} · {r.done}/{r.total} done · {r.submissions || 0} proofs · {r.overdue || 0} overdue
+                    {Number(r.avg_completion_hours) > 0 && ` · ${r.avg_completion_hours}h avg`}
+                  </span>
                 </div>
                 <StrikeBadge count={r.strikes} />
                 <div className="rank-score">{r.score}</div>
@@ -1935,7 +2130,11 @@ function TeamTab({ dash, token, me, reload, notify }) {
                 <div className="rank-pos">#{r.rank}</div>
                 <div className="rank-info">
                   <b>{r.name}</b>
-                  <span className="muted small">{r.title} · {r.done}/{r.total} done</span>
+                  <span className="muted small">
+                    {r.title} · {r.done}/{r.total} done · {r.submissions || 0} proofs · {r.overdue || 0} overdue
+                    {r.department && ` · ${r.department}`}
+                    {Number(r.consistency_days) > 0 && ` · ${r.consistency_days} active days`}
+                  </span>
                 </div>
                 <StrikeBadge count={r.strikes} />
                 <div className="rank-score">{r.score}</div>
@@ -1954,6 +2153,8 @@ function MoreTab({ dash, token, me, reload, notify }) {
   const [report, setReport] = useState(null)
   const [reportPeriod, setReportPeriod] = useState('weekly')
   const [reportLoading, setReportLoading] = useState(false)
+  const [aiReport, setAiReport] = useState(null)
+  const [aiReportLoading, setAiReportLoading] = useState(false)
   const [notifications, setNotifications] = useState([])
   const [notifLoading, setNotifLoading] = useState(false)
   const [showRead, setShowRead] = useState(false)
@@ -1967,6 +2168,39 @@ function MoreTab({ dash, token, me, reload, notify }) {
       notify(`${period[0].toUpperCase() + period.slice(1)} report loaded`)
     } catch (ex) { notify(ex.message, 'error') }
     finally { setReportLoading(false) }
+  }
+
+  async function generateAiReport(period) {
+    setAiReportLoading(true)
+    try {
+      const context = {
+        period,
+        report,
+        rankings: {
+          founders: dash.founder_ranking || [],
+          interns: dash.intern_ranking || []
+        },
+        queues: {
+          overdue: dash.attention_overdue || [],
+          needs_review: dash.attention_needs_review || [],
+          blocked: dash.attention_blocked || []
+        }
+      }
+      const ai = await requestAiAnalysis(context).catch(() => ({ ok: false }))
+      const data = await rpc('generate_ai_report_rpc', {
+        p_token: token,
+        p_period: period,
+        p_ai_summary: ai.ok ? ai.summary : null,
+        p_report_json: { ai_enabled: Boolean(ai.ai_enabled), ai_error: ai.error || null }
+      })
+      setAiReport(data.report || null)
+      setReportPeriod(period)
+      notify(ai.ok ? 'AI report generated' : 'Metrics report saved. AI is disabled or unavailable.')
+    } catch (ex) {
+      notify(ex?.message || 'Unable to generate AI report', 'error')
+    } finally {
+      setAiReportLoading(false)
+    }
   }
 
   async function loadNotifications() {
@@ -2020,6 +2254,12 @@ function MoreTab({ dash, token, me, reload, notify }) {
               <button className="btn" onClick={() => loadReport('monthly')} disabled={reportLoading}>
                 Monthly Report
               </button>
+              <button className="btn" onClick={() => generateAiReport('weekly')} disabled={aiReportLoading}>
+                <Zap size={14} /> Weekly AI Report
+              </button>
+              <button className="btn" onClick={() => generateAiReport('monthly')} disabled={aiReportLoading}>
+                <Zap size={14} /> Monthly AI Report
+              </button>
             </div>
             {report && (
               <div className="report-content">
@@ -2041,6 +2281,15 @@ function MoreTab({ dash, token, me, reload, notify }) {
                 </div>
                 <button className="btn btn-primary" onClick={() => downloadJson(`omnimate-${reportPeriod}-report.json`, report)}>
                   <Download size={14} /> Download JSON
+                </button>
+              </div>
+            )}
+            {aiReport && (
+              <div className="report-content ai-report-content">
+                <b>{aiReport.period} AI Report</b>
+                <p className="muted small">{aiReport.ai_summary}</p>
+                <button className="btn btn-primary" onClick={() => downloadJson(`omnimate-${aiReport.period}-ai-report.json`, aiReport)}>
+                  <Download size={14} /> Download AI JSON
                 </button>
               </div>
             )}

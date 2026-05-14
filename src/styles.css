@@ -5121,7 +5121,59 @@ textarea {
     padding: 10px;
   }
 
-  .proof-preview img {
+.proof-preview img {
     max-height: 180px;
+  }
+}
+
+.weekday-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+}
+
+.weekday-check {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.weekday-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.profile-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-note-card,
+.ai-report-content {
+  display: grid;
+  gap: 8px;
+}
+
+.ai-note-card p,
+.ai-report-content p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .weekday-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
