@@ -42,7 +42,7 @@ const emptyDash = {
   attention_blocked: [], recent_activity: [], unread_notifications: 0
 }
 const ideaStatuses = ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'IN_PROGRESS', 'REJECTED']
-const taskStatuses = ['ALL', 'TODO', 'IN_PROGRESS', 'SUBMITTED', 'DONE', 'BLOCKED']
+const taskStatuses = ['ALL', 'TODO', 'IN_PROGRESS', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'CHANGES_REQUESTED', 'RESUBMITTED', 'REJECTED', 'DONE', 'BLOCKED']
 const FRONTEND_INTERN_USERNAMES = new Set(['aarzoo.anna', 'ruqiya.n', 'mazen.ahmed', 'polok.k', 'syed.firas', 'lotifur.r'])
 const BACKEND_INTERN_USERNAMES = new Set(['akshaya.r', 'ismail.q', 'mazharuddin.s'])
 
@@ -85,11 +85,11 @@ function readFileAsDataURL(file) {
 }
 
 function isOverdue(task) {
-  return task.due_date && task.status !== 'DONE' && new Date(`${task.due_date}T23:59:59`) < new Date()
+  return task.due_date && !['DONE', 'APPROVED', 'REJECTED'].includes(task.status) && new Date(`${task.due_date}T23:59:59`) < new Date()
 }
 
 function isDueSoon(task) {
-  if (!task.due_date || task.status === 'DONE') return false
+  if (!task.due_date || ['DONE', 'APPROVED', 'REJECTED'].includes(task.status)) return false
   const due = new Date(`${task.due_date}T23:59:59`)
   const now = new Date()
   const twoDays = 2 * 24 * 60 * 60 * 1000
@@ -123,12 +123,30 @@ function displayRole(role) {
 }
 
 function displayStatusBadge(status) {
-  const map = { TODO: 'todo', IN_PROGRESS: 'in_progress', SUBMITTED: 'submitted', DONE: 'done', BLOCKED: 'blocked' }
+  const map = {
+    TODO: 'todo',
+    IN_PROGRESS: 'in_progress',
+    SUBMITTED: 'submitted',
+    UNDER_REVIEW: 'submitted',
+    APPROVED: 'done',
+    CHANGES_REQUESTED: 'blocked',
+    RESUBMITTED: 'submitted',
+    REJECTED: 'blocked',
+    DONE: 'done',
+    BLOCKED: 'blocked'
+  }
   return map[status] || 'todo'
 }
 
 function priorityClass(p) {
   return { LOW: 'low', MEDIUM: 'medium', HIGH: 'high', URGENT: 'urgent' }[p] || 'medium'
+}
+
+function taskStatusOptionsFor(user = {}, task = {}) {
+  if (user.role === 'CEO') return taskStatuses.filter(s => s !== 'ALL')
+  if (task.assigned_to_id === user.id && task.status === 'APPROVED') return ['APPROVED', 'DONE']
+  if (task.assigned_to_id === user.id) return ['TODO', 'IN_PROGRESS', 'SUBMITTED', 'BLOCKED']
+  return [task.status || 'TODO']
 }
 
 function isAuthExpiredError(error) {
@@ -980,7 +998,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
                 isDeleting={deletingId === t.id} isSelected={selectedTask?.id === t.id}
                 isOverdue={isOverdue(t)} isDueSoon={!isOverdue(t) && isDueSoon(t)}
                 isManagedIntern={t.assignee_role === 'INTERN' && t.assigned_to_id !== safeMe.id}
-                isDone={t.status === 'DONE'} isNew={t.created_at && new Date(t.created_at) > new Date(lastLogin)}
+                isDone={['DONE', 'APPROVED', 'REJECTED'].includes(t.status)} isNew={t.created_at && new Date(t.created_at) > new Date(lastLogin)}
                 view={activeView} />
             ))}
             {activeView === 'history' && sorted.length > 0 && hasMoreHistory && (
@@ -1050,8 +1068,8 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
   const statusLabel = String(safeTask.status || 'TODO').replace('_', ' ')
   const todayKey = new Date().toISOString().slice(0, 10)
   const lastProofDay = safeTask.last_proof_at ? new Date(safeTask.last_proof_at).toISOString().slice(0, 10) : ''
-  const noUpdateToday = view === 'today' && safeTask.status !== 'DONE' && lastProofDay !== todayKey
-  const needsAttention = isOverdue || safeTask.status === 'BLOCKED' || safeTask.status === 'SUBMITTED'
+  const noUpdateToday = view === 'today' && !['DONE', 'APPROVED', 'REJECTED'].includes(safeTask.status) && lastProofDay !== todayKey
+  const needsAttention = isOverdue || ['BLOCKED', 'SUBMITTED', 'UNDER_REVIEW', 'RESUBMITTED', 'CHANGES_REQUESTED'].includes(safeTask.status)
 
   return (
     <div
@@ -1133,14 +1151,14 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
           value={safeTask.status}
           onChange={e => { e.stopPropagation(); onSetStatus(safeTask.id, e.target.value) }}
           onClick={e => e.stopPropagation()}>
-          <option>TODO</option><option>IN_PROGRESS</option><option>SUBMITTED</option><option>DONE</option><option>BLOCKED</option>
+          {taskStatusOptionsFor(safeMe, safeTask).map(s => <option key={s}>{s}</option>)}
         </select>
       )}
     </div>
   )
 }
 
-function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onDelete, onProofSubmitted, notify }) {
+function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onDelete, onReload, onProofSubmitted, notify }) {
   const [localDetail, setLocalDetail] = useState(detail || null)
   const safeTask = normalizeTaskForUi(localDetail || detail || task)
   const safeMe = me || {}
@@ -1156,12 +1174,19 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
   const [proofFileName, setProofFileName] = useState('')
   const [submittingProof, setSubmittingProof] = useState(false)
   const [proofs, setProofs] = useState(Array.isArray(detail?.proofs) ? detail.proofs : Array.isArray(task?.proofs) ? task.proofs : [])
+  const [reviews, setReviews] = useState(Array.isArray(detail?.reviews) ? detail.reviews : [])
+  const [reviewComment, setReviewComment] = useState('')
+  const [reviewing, setReviewing] = useState('')
   const [proofError, setProofError] = useState('')
   const [previewProof, setPreviewProof] = useState(null)
   const [detailModerationReason, setDetailModerationReason] = useState('')
   const [moderatingAssignee, setModeratingAssignee] = useState(false)
   const canSubmitProof = safeMe.role === 'CEO' || safeTask.assigned_to_id === safeMe.id
   const canUpdateStatus = safeMe.role === 'CEO' || safeTask.assigned_to_id === safeMe.id
+  const canReviewTask = safeMe.role === 'CEO'
+    || safeTask.assigned_by_id === safeMe.id
+    || canManageInternForUser(safeMe, { role: safeTask.assignee_role, title: safeTask.assignee_title, username: safeTask.assignee_username, id: safeTask.assigned_to_id })
+  const isReviewable = ['SUBMITTED', 'UNDER_REVIEW', 'RESUBMITTED'].includes(safeTask.status)
 
   useEffect(() => {
     const panel = panelRef.current
@@ -1223,6 +1248,7 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
     if (detail) setLocalDetail(detail)
     if (Array.isArray(detail?.comments)) setComments(detail.comments)
     if (Array.isArray(detail?.proofs)) setProofs(detail.proofs)
+    if (Array.isArray(detail?.reviews)) setReviews(detail.reviews)
   }, [detail])
 
   async function submitComment(e) {
@@ -1237,6 +1263,33 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
       notify('Comment added')
     } catch (ex) { notify(ex.message, 'error') }
     finally { setSubmittingComment(false) }
+  }
+
+  async function reviewTask(action) {
+    setReviewing(action)
+    try {
+      await rpc('review_task_rpc', {
+        p_token: token,
+        p_task_id: safeTask.id,
+        p_action: action,
+        p_comment: reviewComment
+      })
+      const nextDetail = await rpc('get_task_by_id_rpc', { p_token: token, p_task_id: safeTask.id }).catch(() => null)
+      const normalizedDetail = nextDetail ? normalizeTaskForUi(objectFromRpc(nextDetail)) : null
+      if (normalizedDetail) {
+        setLocalDetail(normalizedDetail)
+        setProofs(Array.isArray(normalizedDetail.proofs) ? normalizedDetail.proofs : [])
+        setComments(Array.isArray(normalizedDetail.comments) ? normalizedDetail.comments : [])
+        setReviews(Array.isArray(normalizedDetail.reviews) ? normalizedDetail.reviews : [])
+      }
+      setReviewComment('')
+      await onReload?.()
+      notify(action === 'APPROVE' ? 'Task approved' : action === 'REQUEST_CHANGES' ? 'Changes requested' : action === 'REJECT' ? 'Task rejected' : 'Review opened')
+    } catch (ex) {
+      notify(ex?.message || 'Unable to review task', 'error')
+    } finally {
+      setReviewing('')
+    }
   }
 
   async function handleProofFile(e) {
@@ -1389,7 +1442,7 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
         {canUpdateStatus ? (
           <select className="input status-select" value={safeTask.status}
             onChange={e => onStatusChange(e.target.value)}>
-            <option>TODO</option><option>IN_PROGRESS</option><option>SUBMITTED</option><option>DONE</option><option>BLOCKED</option>
+            {taskStatusOptionsFor(safeMe, safeTask).map(s => <option key={s}>{s}</option>)}
           </select>
         ) : (
           <div className="readonly-status">
@@ -1397,6 +1450,49 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
           </div>
         )}
       </div>
+
+      {canReviewTask && (isReviewable || reviews.length > 0) && (
+        <div className="detail-section review-workspace-section">
+          <div className="detail-label"><Zap size={14} /> Review Workspace</div>
+          {isReviewable ? (
+            <>
+              <textarea className="input" placeholder="Reviewer comment, changes needed, or approval note..."
+                value={reviewComment} onChange={e => setReviewComment(e.target.value)} />
+              <div className="review-actions">
+                {safeTask.status !== 'UNDER_REVIEW' && (
+                  <button className="btn btn-sm" type="button" disabled={Boolean(reviewing)} onClick={() => reviewTask('OPEN_REVIEW')}>
+                    {reviewing === 'OPEN_REVIEW' ? 'Opening...' : 'Open Review'}
+                  </button>
+                )}
+                <button className="btn btn-primary btn-sm" type="button" disabled={Boolean(reviewing)} onClick={() => reviewTask('APPROVE')}>
+                  {reviewing === 'APPROVE' ? 'Approving...' : 'Approve'}
+                </button>
+                <button className="btn btn-sm" type="button" disabled={Boolean(reviewing)} onClick={() => reviewTask('REQUEST_CHANGES')}>
+                  {reviewing === 'REQUEST_CHANGES' ? 'Saving...' : 'Request Changes'}
+                </button>
+                <button className="btn btn-danger btn-sm" type="button" disabled={Boolean(reviewing)} onClick={() => reviewTask('REJECT')}>
+                  {reviewing === 'REJECT' ? 'Rejecting...' : 'Reject'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="muted small">This task is not currently awaiting review.</p>
+          )}
+          {reviews.length > 0 && (
+            <div className="review-history">
+              {reviews.slice(0, 6).map(r => (
+                <div key={r.id} className="review-entry">
+                  <div className="review-entry-head">
+                    <b>{String(r.action || '').replace('_', ' ')}</b>
+                    <span className="muted small">{r.reviewer_name || 'Reviewer'} · {timeAgo(r.created_at)}</span>
+                  </div>
+                  {r.comment && <p>{r.comment}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Proof submission */}
       <div className="detail-section detail-proof-submit-section">

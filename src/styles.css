@@ -1193,6 +1193,52 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   background: var(--surface-2);
 }
 
+.review-workspace-section {
+  border: 1px solid rgba(126,184,245,0.22);
+  border-radius: var(--radius);
+  padding: 12px;
+  background: rgba(126,184,245,0.04);
+}
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.review-history {
+  display: grid;
+  gap: 8px;
+}
+
+.review-entry {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 9px 10px;
+}
+
+.review-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.review-entry b {
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.review-entry p {
+  margin: 6px 0 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .proof-submit-form {
   display: flex;
   flex-direction: column;
