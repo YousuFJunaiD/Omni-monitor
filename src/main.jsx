@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState, useCallback} from 'react'
+import React, {useEffect, useMemo, useRef, useState, useCallback, memo} from 'react'
 import {createRoot} from 'react-dom/client'
 import {
   Activity,
@@ -518,7 +518,8 @@ function App() {
 
 // ─── Stat Card ───────────────────────────────────────────────────────────────
 
-function StatCard({ icon, label, value, accent }) {
+// Phase 7: memoized — stable props from parent useMemo'd derivations.
+const StatCard = memo(function StatCard({ icon, label, value, accent }) {
   return (
     <div className={`stat-card ${accent ? 'stat-accent' : ''}`}>
       <div className="stat-icon">{icon}</div>
@@ -528,7 +529,7 @@ function StatCard({ icon, label, value, accent }) {
       </div>
     </div>
   )
-}
+})
 
 // ─── Section Header ──────────────────────────────────────────────────────────
 
@@ -576,12 +577,20 @@ function HomeTab({ dash, token, me, reload, notify }) {
 
 // ── Shared helpers for role views ────────────────────────────────────────────
 
-function useActivityFeed(token, { limit = 50 } = {}) {
+function useActivityFeed(token, { limit = 25 } = {}) {
+  // Phase 7: default limit reduced from 50 → 25 (still paginated via Load more).
+  // Phase 7: mountedRef gates setState so fast tab switches don't warn.
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   const load = useCallback(async ({ off = 0, append = false } = {}) => {
     if (!token) return
@@ -589,14 +598,15 @@ function useActivityFeed(token, { limit = 50 } = {}) {
     setError('')
     try {
       const data = await rpc('get_activity_feed_rpc', { p_token: token, p_limit: limit, p_offset: off })
+      if (!mountedRef.current) return
       const next = arrayFromRpc(data, ['items', 'data', 'activity'])
       setItems(prev => append ? [...prev, ...next] : next)
       setOffset(off + next.length)
       setHasMore(next.length === limit)
     } catch (ex) {
-      setError(ex.message || 'Unable to load activity')
+      if (mountedRef.current) setError(ex.message || 'Unable to load activity')
     } finally {
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }, [token, limit])
 
@@ -676,7 +686,8 @@ function computeDeptStats(dept, users, overdueList, needsReviewList, blockedList
   }
 }
 
-function ActivityPanel({ activity, error, loading, hasMore, onLoadMore, onRetry, title = 'Company Activity' }) {
+// Phase 7: memoized — only re-renders when activity/loading/title actually change.
+const ActivityPanel = memo(function ActivityPanel({ activity, error, loading, hasMore, onLoadMore, onRetry, title = 'Company Activity' }) {
   return (
     <div className="panel">
       <SectionHead
@@ -715,9 +726,9 @@ function ActivityPanel({ activity, error, loading, hasMore, onLoadMore, onRetry,
       )}
     </div>
   )
-}
+})
 
-function ProofFeedPanel({ proofFeed, limit = 5, title = 'Proof Feed' }) {
+const ProofFeedPanel = memo(function ProofFeedPanel({ proofFeed, limit = 5, title = 'Proof Feed' }) {
   return (
     <div className="panel">
       <SectionHead icon={<Camera size={16} />} title={title} />
@@ -740,9 +751,9 @@ function ProofFeedPanel({ proofFeed, limit = 5, title = 'Proof Feed' }) {
       )}
     </div>
   )
-}
+})
 
-function AttentionColumn({ icon, title, items, emptyText, variant = 'overdue', renderMeta }) {
+const AttentionColumn = memo(function AttentionColumn({ icon, title, items, emptyText, variant = 'overdue', renderMeta }) {
   return (
     <div className="attention-col">
       <div className={`attention-head attention-${variant}`}>
@@ -765,14 +776,14 @@ function AttentionColumn({ icon, title, items, emptyText, variant = 'overdue', r
       )) : <div className="attention-empty">{emptyText}</div>}
     </div>
   )
-}
+})
 
 // ── CEO VIEW ─────────────────────────────────────────────────────────────────
 
 function CeoHomeView({ dash, token, me, reload, notify }) {
   const [applyingStrikes, setApplyingStrikes] = useState(false)
   const [generatingReport, setGeneratingReport] = useState(false)
-  const { items: feedItems, loading: feedLoading, error: feedError, hasMore: feedHasMore, offset: feedOffset, load: loadFeed } = useActivityFeed(token, { limit: 50 })
+  const { items: feedItems, loading: feedLoading, error: feedError, hasMore: feedHasMore, offset: feedOffset, load: loadFeed } = useActivityFeed(token)
   const { insights, loading: insightsLoading } = useAiInsights(token, me?.role)
 
   const overdue = dash.attention_overdue || []
@@ -1077,7 +1088,7 @@ function CeoHomeView({ dash, token, me, reload, notify }) {
 
 function FounderHomeView({ dash, token, me, reload, notify }) {
   const myDept = userDepartment(me)
-  const { items: feedItems, loading: feedLoading, error: feedError, hasMore: feedHasMore, offset: feedOffset, load: loadFeed } = useActivityFeed(token, { limit: 50 })
+  const { items: feedItems, loading: feedLoading, error: feedError, hasMore: feedHasMore, offset: feedOffset, load: loadFeed } = useActivityFeed(token)
   const { insights, loading: insightsLoading } = useAiInsights(token, me?.role)
 
   const visibleUsers = dash.visible_users || []
@@ -1499,6 +1510,14 @@ function TasksTab({ dash, token, me, reload, notify }) {
 
   const loadTemplates = useCallback(async () => {
     if (!token) return
+    // Phase 7: skip template fetch for interns — they cannot create tasks
+    // (canCreateTasks = role !== 'INTERN') so templates UI is hidden anyway.
+    // Saves an RPC roundtrip + payload on every TasksTab mount for interns.
+    if (String(safeMe?.role || '').toUpperCase() === 'INTERN') {
+      setTemplates([])
+      setTemplatesLoading(false)
+      return
+    }
     setTemplatesLoading(true)
     try {
       const data = await rpc('get_task_templates_rpc', { p_token: token, p_include_archived: false, p_limit: 80 })
@@ -1509,7 +1528,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
     } finally {
       setTemplatesLoading(false)
     }
-  }, [token])
+  }, [token, safeMe?.role])
 
   useEffect(() => {
     setTasks([])
