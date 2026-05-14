@@ -6143,3 +6143,108 @@ textarea {
 }
 /* ─── End Phase 6 ─────────────────────────────────────────────────────────── */
 .intern-task-meta { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* ─── Phase 8: Notification categories + grouping (additive) ─────────────── */
+.notif-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 12px;
+}
+.notif-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.notif-pill:hover { color: var(--text); border-color: var(--border); }
+.notif-pill.is-active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: rgba(126, 184, 245, 0.3);
+}
+.notif-pill-overdue.is-active { background: var(--danger-dim); color: var(--danger); border-color: rgba(245,123,143,0.25); }
+.notif-pill-submitted.is-active { background: var(--accent-2-dim); color: var(--accent-2); border-color: rgba(245,194,107,0.25); }
+.notif-pill-blocked.is-active { background: rgba(245,123,143,0.10); color: var(--danger); border-color: rgba(245,123,143,0.20); }
+.notif-pill-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+  border-radius: 999px;
+}
+.notif-pill.is-active .notif-pill-count {
+  background: rgba(0,0,0,0.18);
+  color: inherit;
+}
+
+.notif-item {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  background: var(--surface-2);
+}
+.notif-item + .notif-item { margin-top: 8px; }
+.notif-item.notif-unread {
+  border-color: rgba(126, 184, 245, 0.20);
+  background: rgba(126, 184, 245, 0.04);
+}
+.notif-cat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+.notif-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.notif-cat-badge { font-size: 10px; }
+.notif-count-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+  padding: 2px 6px;
+  background: var(--surface-3);
+  border-radius: 999px;
+}
+.notif-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+@media (max-width: 600px) {
+  .notif-row-actions { flex-direction: row; flex-wrap: wrap; }
+  .notif-item { grid-template-columns: 24px 1fr; }
+  .notif-row-actions { grid-column: 1 / -1; justify-content: flex-end; }
+}
+/* ─── End Phase 8 ─────────────────────────────────────────────────────────── */

@@ -446,6 +446,17 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [booting, setBooting] = useState(Boolean(localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY)))
   const [toast, setToast] = useState(null)
+  // Phase 8: cross-tab navigation for actionable notifications.
+  const [pendingTaskId, setPendingTaskId] = useState(null)
+  const goToTask = useCallback((taskId) => {
+    if (!taskId) return
+    setPendingTaskId(taskId)
+    setTab('tasks')
+  }, [])
+  const goToTab = useCallback((nextTab) => {
+    if (nextTab) setTab(nextTab)
+  }, [])
+  const clearPendingTaskId = useCallback(() => setPendingTaskId(null), [])
 
   async function load() {
     if (!token) {
@@ -505,10 +516,10 @@ function App() {
         {loading && <div className="loading-bar"><span /></div>}
         <TabErrorBoundary resetKey={tab} message={tab === 'tasks' ? 'Unable to load tasks.' : 'Unable to load this section.'}>
           {tab === 'home'   && <HomeTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
-          {tab === 'tasks' && <TasksTab  dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
+          {tab === 'tasks' && <TasksTab  dash={dash} token={token} me={dash.me} reload={load} notify={notify} pendingTaskId={pendingTaskId} clearPendingTaskId={clearPendingTaskId} />}
           {tab === 'ideas' && <IdeasTab  dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
           {tab === 'team'  && <TeamTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
-          {tab === 'more'  && <MoreTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
+          {tab === 'more'  && <MoreTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} goToTask={goToTask} goToTab={goToTab} />}
         </TabErrorBoundary>
       </main>
       {toast && <Toast message={toast.message} type={toast.type} onDismiss={() => setToast(null)} />}
@@ -1433,7 +1444,7 @@ const taskViews = [
   { id: 'history', label: 'Task History', icon: CheckCircle, emptyTitle: 'No completed history', emptyText: 'Completed tasks will collect here.' }
 ]
 
-function TasksTab({ dash, token, me, reload, notify }) {
+function TasksTab({ dash, token, me, reload, notify, pendingTaskId = null, clearPendingTaskId }) {
   const [tasks, setTasks] = useState([])
   const [tasksLoading, setTasksLoading] = useState(false)
   const [taskError, setTaskError] = useState('')
@@ -1606,6 +1617,31 @@ function TasksTab({ dash, token, me, reload, notify }) {
       setTaskDetail(normalizeTaskForUi(objectFromRpc(detail)))
     } catch { setTaskDetail(null) }
   }
+
+  // Phase 8: consume a pending task ID set by a notification deep-link.
+  // get_task_by_id_rpc enforces RBAC server-side, so a malicious caller
+  // attempting to open a task they shouldn't see will just receive a
+  // null/error from the RPC and the detail panel stays empty.
+  useEffect(() => {
+    if (!pendingTaskId || !token) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const detail = await rpc('get_task_by_id_rpc', { p_token: token, p_task_id: pendingTaskId })
+        if (cancelled) return
+        const normalized = normalizeTaskForUi(objectFromRpc(detail))
+        if (normalized?.id) {
+          setSelectedTask({ id: normalized.id, title: normalized.title })
+          setTaskDetail(normalized)
+        }
+      } catch {
+        // RBAC denial or 404 — silently ignore, the panel stays closed.
+      } finally {
+        if (typeof clearPendingTaskId === 'function') clearPendingTaskId()
+      }
+    })()
+    return () => { cancelled = true }
+  }, [pendingTaskId, token, clearPendingTaskId])
 
   async function setStatus(taskId, status) {
     try {
@@ -3360,9 +3396,124 @@ function TeamTab({ dash, token, me, reload, notify }) {
   )
 }
 
+// ─── Phase 8: Notification categorization + grouping ────────────────────────
+// All rules derive from existing fields (kind, title, body, link_kind).
+// No SQL changes. Categories with no current source events (Urgent, AI,
+// Deadline) will simply be absent from the UI until future RPCs write
+// matching notifications.
+
+const NOTIF_CATEGORIES = ['Review', 'Urgent', 'AI', 'Proof', 'Task', 'Deadline', 'Changes Requested', 'Strike', 'System']
+
+function categorizeNotification(n) {
+  const kind = String(n?.kind || '').toUpperCase()
+  const title = String(n?.title || '').toLowerCase()
+  const body = String(n?.body || '').toLowerCase()
+  const linkKind = String(n?.link_kind || '').toLowerCase()
+
+  // 1) Explicit urgent override — substring match on title/body.
+  if (/\burgent\b|\bcritical\b/.test(title) || /\burgent\b|\bcritical\b/.test(body)) return 'Urgent'
+
+  // 2) AI insight notifications — currently no source writes these; future-proofed.
+  if (kind === 'AI_INSIGHT' || /\bai\b.*\binsight\b|productivity drop|burnout/.test(title)) return 'AI'
+
+  // 3) Deadline approaching — no current source; future-proofed.
+  if (kind === 'DEADLINE_APPROACHING' || /\bdeadline\b.*(approaching|approaches|soon)/.test(title)) return 'Deadline'
+
+  // 4) Strike — direct mapping.
+  if (kind === 'STRIKE_APPLIED' || /\bstrike\b/.test(title)) return 'Strike'
+
+  // 5) Proof submitted (sent to reviewer) — actionable as a review.
+  if (kind === 'PROOF_SUBMITTED') return 'Review'
+
+  // 6) Review state transitions (from round17 review_task_rpc).
+  //    titles: 'Review opened', 'Task approved', 'Changes requested', 'Task rejected'
+  if (kind === 'TASK_STATUS_CHANGED') {
+    if (/changes? requested/.test(title) || /\bresubmit/.test(title)) return 'Changes Requested'
+    if (/review opened|approved|rejected/.test(title)) return 'Review'
+    return 'Task'
+  }
+
+  // 7) Task assigned — straightforward.
+  if (kind === 'TASK_ASSIGNED') return 'Task'
+
+  // 8) Idea events — closest fit is Task (they're work items).
+  if (kind === 'IDEA_SUBMITTED' || kind === 'IDEA_STATUS_CHANGED') return 'Task'
+
+  // 9) SYSTEM kind — used for new task comments (link_kind='task').
+  //    Comment notifications are task-related; pure system messages go to System.
+  if (kind === 'SYSTEM') return linkKind === 'task' ? 'Task' : 'System'
+
+  return 'System'
+}
+
+function categoryStyle(category) {
+  // Map category → existing badge variant + lucide icon name (string ref resolved at render).
+  const map = {
+    'Review':            { variant: 'submitted',    iconKey: 'Zap' },
+    'Urgent':            { variant: 'overdue',      iconKey: 'AlertCircle' },
+    'AI':                { variant: 'submitted',    iconKey: 'Zap' },
+    'Proof':             { variant: 'default',      iconKey: 'Camera' },
+    'Task':              { variant: 'default',      iconKey: 'ClipboardList' },
+    'Deadline':          { variant: 'overdue',      iconKey: 'Clock' },
+    'Changes Requested': { variant: 'blocked',      iconKey: 'MessageSquare' },
+    'Strike':            { variant: 'overdue',      iconKey: 'Flame' },
+    'System':            { variant: 'default',      iconKey: 'Info' }
+  }
+  return map[category] || map['System']
+}
+
+// Group notifications by (category, link_kind, link_id). Same-target events
+// collapse into one row with a count. Unread count is preserved.
+function groupNotifications(items, activeCategory = 'All') {
+  const list = Array.isArray(items) ? items : []
+  const groupsByKey = new Map()
+  for (const n of list) {
+    const category = categorizeNotification(n)
+    if (activeCategory !== 'All' && activeCategory !== category) continue
+    const linkKey = n.link_id ? `${n.link_kind || ''}:${n.link_id}` : `id:${n.id}`
+    const key = `${category}|${linkKey}`
+    let g = groupsByKey.get(key)
+    if (!g) {
+      g = {
+        key,
+        category,
+        latest: n,
+        count: 0,
+        unread: 0,
+        ids: []
+      }
+      groupsByKey.set(key, g)
+    }
+    g.count += 1
+    g.ids.push(n.id)
+    if (!n.read_at) g.unread += 1
+    // Keep the most-recent as "latest" so the title reflects current state.
+    if (new Date(n.created_at) > new Date(g.latest.created_at)) {
+      g.latest = n
+    }
+  }
+  // Sort: unread first, then newest latest first.
+  return Array.from(groupsByKey.values()).sort((a, b) => {
+    if ((b.unread > 0) !== (a.unread > 0)) return (b.unread > 0) ? 1 : -1
+    return new Date(b.latest.created_at) - new Date(a.latest.created_at)
+  })
+}
+
+function categoryCounts(items) {
+  const counts = Object.fromEntries(NOTIF_CATEGORIES.map(c => [c, 0]))
+  let all = 0
+  for (const n of (items || [])) {
+    if (n.read_at) continue // count UNREAD only on pills
+    const c = categorizeNotification(n)
+    if (counts[c] !== undefined) counts[c] += 1
+    all += 1
+  }
+  return { ...counts, All: all }
+}
+
 // ─── MORE TAB ────────────────────────────────────────────────────────────────
 
-function MoreTab({ dash, token, me, reload, notify }) {
+function MoreTab({ dash, token, me, reload, notify, goToTask, goToTab }) {
   const [report, setReport] = useState(null)
   const [reportPeriod, setReportPeriod] = useState('weekly')
   const [reportLoading, setReportLoading] = useState(false)
@@ -3371,6 +3522,8 @@ function MoreTab({ dash, token, me, reload, notify }) {
   const [notifications, setNotifications] = useState([])
   const [notifLoading, setNotifLoading] = useState(false)
   const [showRead, setShowRead] = useState(false)
+  // Phase 8: active category filter for the notification panel. 'All' = no filter.
+  const [activeCategory, setActiveCategory] = useState('All')
 
   async function loadReport(period) {
     setReportLoading(true)
@@ -3444,6 +3597,50 @@ function MoreTab({ dash, token, me, reload, notify }) {
   }
 
   const unreadCount = notifications.filter(n => !n.read_at).length
+
+  // Phase 8: derived category counts + filtered groups. Memoized to avoid
+  // recomputing on unrelated MoreTab re-renders.
+  const catCounts = useMemo(() => categoryCounts(notifications), [notifications])
+  const groupedNotifs = useMemo(() => groupNotifications(notifications, activeCategory), [notifications, activeCategory])
+
+  // Phase 8: deep-link action — mark unread in the group as read, then navigate.
+  async function actOnGroup(group) {
+    if (!group) return
+    try {
+      const unreadIds = (group.ids || []).filter(id => {
+        const n = notifications.find(x => x.id === id)
+        return n && !n.read_at
+      })
+      await Promise.all(unreadIds.map(id =>
+        rpc('mark_notification_read_rpc', { p_token: token, p_notification_id: id }).catch(() => null)
+      ))
+    } catch { /* ignore */ }
+    const latest = group.latest || {}
+    const lk = String(latest.link_kind || '').toLowerCase()
+    if (lk === 'task' && latest.link_id && typeof goToTask === 'function') {
+      goToTask(latest.link_id)
+    } else if (lk === 'proof' && typeof goToTab === 'function') {
+      // Proof notifications carry proof_id, not task_id — best we can do is
+      // land the reviewer on the tasks tab where Under Review view is one click.
+      goToTab('tasks')
+    } else if (lk === 'idea' && typeof goToTab === 'function') {
+      goToTab('ideas')
+    }
+    await loadNotifications()
+    await reload()
+  }
+
+  // Icon lookup for category badges (avoids dynamic JSX that bundler can't tree-shake).
+  const CATEGORY_ICONS = {
+    Zap: Zap,
+    AlertCircle: AlertCircle,
+    Camera: Camera,
+    ClipboardList: ClipboardList,
+    Clock: Clock,
+    MessageSquare: MessageSquare,
+    Flame: Flame,
+    Info: Info
+  }
 
   return (
     <div className="tab-more">
@@ -3526,22 +3723,99 @@ function MoreTab({ dash, token, me, reload, notify }) {
           {notifLoading ? (
             <div className="loading">Loading...</div>
           ) : notifications.length > 0 ? (
-            <div className="notif-list">
-              {notifications.map(n => (
-                <div key={n.id} className={`notif-item ${n.read_at ? 'notif-read' : 'notif-unread'}`}>
-                  <div className="notif-body">
-                    <b>{n.title}</b>
-                    {n.body && <p className="notif-text muted small">{n.body}</p>}
-                    <span className="notif-time muted">{timeAgo(n.created_at)}</span>
-                  </div>
-                  {!n.read_at && (
-                    <button className="btn btn-sm" onClick={() => markRead(n.id)}>
-                      <CheckCircle size={12} /> Read
+            <>
+              {/* Phase 8: category filter pills — show only categories with ≥1 unread,
+                  plus 'All'. Avoids dead UI for AI/Urgent/Deadline until they have data. */}
+              <div className="notif-pills" role="tablist" aria-label="Notification categories">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activeCategory === 'All'}
+                  className={`notif-pill ${activeCategory === 'All' ? 'is-active' : ''}`}
+                  onClick={() => setActiveCategory('All')}
+                >
+                  All
+                  {catCounts.All > 0 && <span className="notif-pill-count">{catCounts.All}</span>}
+                </button>
+                {NOTIF_CATEGORIES.filter(cat => catCounts[cat] > 0 || activeCategory === cat).map(cat => {
+                  const style = categoryStyle(cat)
+                  const Icon = CATEGORY_ICONS[style.iconKey] || Info
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      role="tab"
+                      aria-selected={activeCategory === cat}
+                      className={`notif-pill notif-pill-${style.variant} ${activeCategory === cat ? 'is-active' : ''}`}
+                      onClick={() => setActiveCategory(cat)}
+                    >
+                      <Icon size={12} />
+                      <span>{cat}</span>
+                      {catCounts[cat] > 0 && <span className="notif-pill-count">{catCounts[cat]}</span>}
                     </button>
-                  )}
+                  )
+                })}
+              </div>
+
+              {/* Phase 8: grouped notification rows. Same category+target collapses into
+                  one row with a count. Action button deep-links when link is available. */}
+              {groupedNotifs.length > 0 ? (
+                <div className="notif-list">
+                  {groupedNotifs.map(g => {
+                    const n = g.latest
+                    const style = categoryStyle(g.category)
+                    const Icon = CATEGORY_ICONS[style.iconKey] || Info
+                    const lk = String(n.link_kind || '').toLowerCase()
+                    const canOpen = (lk === 'task' && n.link_id) || lk === 'proof' || lk === 'idea'
+                    const openLabel = lk === 'task' ? 'Open task' : lk === 'proof' ? 'Open review' : lk === 'idea' ? 'Open ideas' : ''
+                    return (
+                      <div key={g.key} className={`notif-item ${g.unread > 0 ? 'notif-unread' : 'notif-read'}`}>
+                        <div className="notif-cat" aria-label={g.category}>
+                          <Icon size={14} />
+                        </div>
+                        <div className="notif-body">
+                          <div className="notif-row-head">
+                            <b>{n.title}</b>
+                            <span className={`badge badge-${style.variant} notif-cat-badge`}>{g.category}</span>
+                            {g.count > 1 && <span className="notif-count-badge">×{g.count}</span>}
+                          </div>
+                          {n.body && <p className="notif-text muted small">{n.body}</p>}
+                          <span className="notif-time muted">{timeAgo(n.created_at)}{g.unread > 0 && g.count > 1 ? ` · ${g.unread} unread` : ''}</span>
+                        </div>
+                        <div className="notif-row-actions">
+                          {canOpen && (
+                            <button className="btn btn-sm btn-primary" type="button" onClick={() => actOnGroup(g)} title={openLabel}>
+                              {openLabel}
+                            </button>
+                          )}
+                          {g.unread > 0 && (
+                            <button
+                              className="btn btn-sm btn-ghost"
+                              type="button"
+                              onClick={async () => {
+                                const unreadIds = (g.ids || []).filter(id => {
+                                  const m = notifications.find(x => x.id === id)
+                                  return m && !m.read_at
+                                })
+                                await Promise.all(unreadIds.map(id =>
+                                  rpc('mark_notification_read_rpc', { p_token: token, p_notification_id: id }).catch(() => null)
+                                ))
+                                await loadNotifications()
+                                await reload()
+                              }}
+                            >
+                              <CheckCircle size={12} /> Read
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-              ))}
-            </div>
+              ) : (
+                <Empty icon={<Bell size={20} />} text={activeCategory === 'All' ? 'No notifications' : `No ${activeCategory} notifications`} />
+              )}
+            </>
           ) : (
             <Empty icon={<Bell size={20} />} text="No notifications" />
           )}
