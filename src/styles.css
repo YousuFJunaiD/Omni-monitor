@@ -5855,3 +5855,291 @@ textarea {
     font-size: 18px;
   }
 }
+
+/* ─── Phase 6: Role-specific dashboards (additive) ───────────────────────── */
+/* Layout shared across roles */
+.page-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.ceo-grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 12px;
+}
+@media (max-width: 900px) {
+  .ceo-grid-2col { grid-template-columns: 1fr; }
+}
+
+/* Department health (CEO) */
+.dept-health-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 8px;
+}
+@media (max-width: 700px) {
+  .dept-health-grid { grid-template-columns: 1fr; }
+}
+.dept-health-card { padding: 18px; }
+.dept-health-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.dept-health-head h3 {
+  font-size: 18px;
+  margin: 2px 0 0;
+  letter-spacing: -0.01em;
+}
+.dept-health-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+.dept-health-stats > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 6px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+}
+.dept-health-stats b {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text);
+}
+.dept-health-stats span {
+  font-size: 10px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 4px;
+}
+
+/* AI summary panel (CEO + Founder) */
+.ai-summary-panel { padding: 18px; }
+.ai-insight-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ai-insight-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+}
+.ai-insight-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ai-insight-body b {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Bottleneck / risk list (CEO + Founder) */
+.bottleneck-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bottleneck-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+}
+.bottleneck-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.bottleneck-row b {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Trend bars (CEO) */
+.trend-bars {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  align-items: end;
+  height: 110px;
+  padding-top: 8px;
+}
+.trend-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.trend-bar {
+  width: 100%;
+  max-width: 28px;
+  background: linear-gradient(180deg, var(--danger) 0%, var(--danger-dim) 100%);
+  border-radius: 3px 3px 0 0;
+  min-height: 4px;
+  transition: height 0.2s ease;
+}
+.trend-label {
+  font-size: 10px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.trend-bar-col small { font-size: 11px; color: var(--text-2); font-weight: 700; }
+
+/* Finance placeholder (CEO) */
+.finance-placeholder {
+  border-style: dashed;
+  background: var(--surface-2);
+}
+.finance-placeholder p { font-size: 12px; line-height: 1.5; }
+
+/* Founder: intern management */
+.founder-intern-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.founder-intern-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+}
+.founder-intern-row.rank-danger {
+  border-color: rgba(245,123,143,0.25);
+  background: rgba(245,123,143,0.04);
+}
+.founder-intern-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.founder-intern-info b { font-size: 14px; color: var(--text); }
+.founder-intern-counts { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Founder: workload bars */
+.workload-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.workload-row {
+  display: grid;
+  grid-template-columns: 130px 1fr 32px;
+  gap: 10px;
+  align-items: center;
+}
+.workload-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workload-bar-wrap {
+  display: flex;
+  height: 12px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+}
+.workload-bar { height: 100%; transition: width 0.25s ease; }
+.workload-overdue { background: var(--danger); }
+.workload-review { background: var(--accent-2); }
+.workload-blocked { background: #c084fc; }
+.workload-total {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: right;
+}
+@media (max-width: 700px) {
+  .workload-row { grid-template-columns: 100px 1fr 28px; }
+}
+
+/* Intern: today + tasks */
+.intern-today-panel { padding: 16px; }
+.intern-task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.intern-task-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+}
+.intern-task-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.intern-task-row b {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.intern-task-row .muted.small { font-size: 11px; }
+
+/* Intern: focus mode */
+.focus-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.focus-toggle.is-on {
+  background: var(--accent-2-dim);
+  color: var(--accent-2);
+  border-color: rgba(245,194,107,0.3);
+}
+.role-intern.focus-mode-on .dashboard-section-label:not(:nth-of-type(1)):not(:nth-of-type(2)) {
+  display: none;
+}
+.role-intern.focus-mode-on .stats-row {
+  opacity: 0.7;
+}
+/* ─── End Phase 6 ─────────────────────────────────────────────────────────── */
+.intern-task-meta { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }

@@ -556,36 +556,285 @@ function StrikeBadge({ count = 0 }) {
     : null
 }
 
-// ─── HOME TAB ────────────────────────────────────────────────────────────────
+// ─── HOME TAB (role dispatcher) ──────────────────────────────────────────────
+// Phase 6: role-specific dashboards. Production entry — see FRONTEND_ARCHITECTURE.md.
+// Dispatches to CEO / Founder / Intern views based on me.role. Each view reuses
+// existing rpc() helper and the get_dashboard payload already loaded by App().
+// No new SQL — only frontend composition over Phases 1–5 RPCs.
 
 function HomeTab({ dash, token, me, reload, notify }) {
-  const [applyingStrikes, setApplyingStrikes] = useState(false)
-  const [feedItems, setFeedItems] = useState([])
-  const [feedLoading, setFeedLoading] = useState(false)
-  const [feedError, setFeedError] = useState('')
-  const [feedOffset, setFeedOffset] = useState(0)
-  const [feedHasMore, setFeedHasMore] = useState(false)
-
-  async function loadActivityFeed({ offset = 0, append = false } = {}) {
-    if (!token) return
-    setFeedLoading(true)
-    setFeedError('')
-    try {
-      const data = await rpc('get_activity_feed_rpc', { p_token: token, p_limit: 50, p_offset: offset })
-      const items = arrayFromRpc(data, ['items', 'data', 'activity'])
-      setFeedItems(prev => append ? [...prev, ...items] : items)
-      setFeedOffset(offset + items.length)
-      setFeedHasMore(items.length === 50)
-    } catch (ex) {
-      setFeedError(ex.message || 'Unable to load activity')
-    } finally {
-      setFeedLoading(false)
-    }
+  const role = String(me?.role || '').toUpperCase()
+  if (role === 'CEO') {
+    return <CeoHomeView dash={dash} token={token} me={me} reload={reload} notify={notify} />
   }
+  if (role === 'FOUNDER' || role === 'BOARD') {
+    return <FounderHomeView dash={dash} token={token} me={me} reload={reload} notify={notify} />
+  }
+  // INTERN or anything unrecognized → intern execution view (least-privilege fallback)
+  return <InternHomeView dash={dash} token={token} me={me} reload={reload} notify={notify} />
+}
+
+// ── Shared helpers for role views ────────────────────────────────────────────
+
+function useActivityFeed(token, { limit = 50 } = {}) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [offset, setOffset] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
+
+  const load = useCallback(async ({ off = 0, append = false } = {}) => {
+    if (!token) return
+    setLoading(true)
+    setError('')
+    try {
+      const data = await rpc('get_activity_feed_rpc', { p_token: token, p_limit: limit, p_offset: off })
+      const next = arrayFromRpc(data, ['items', 'data', 'activity'])
+      setItems(prev => append ? [...prev, ...next] : next)
+      setOffset(off + next.length)
+      setHasMore(next.length === limit)
+    } catch (ex) {
+      setError(ex.message || 'Unable to load activity')
+    } finally {
+      setLoading(false)
+    }
+  }, [token, limit])
+
+  useEffect(() => { load({ off: 0 }) }, [load])
+
+  return { items, loading, error, hasMore, offset, load }
+}
+
+function useAiInsights(token, role) {
+  // Interns must not call this — server-side returns empty for INTERN, but skip
+  // the round-trip entirely as a client-side RBAC guard.
+  const [insights, setInsights] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    loadActivityFeed({ offset: 0 })
-  }, [token])
+    if (!token) return
+    if (String(role || '').toUpperCase() === 'INTERN') return
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    rpc('get_ai_insights_rpc', { p_token: token, p_limit: 50, p_include_acknowledged: false })
+      .then(data => {
+        if (cancelled) return
+        setInsights(arrayFromRpc(data, ['insights', 'data']))
+      })
+      .catch(ex => { if (!cancelled) setError(ex.message || 'Unable to load insights') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [token, role])
+
+  return { insights, loading, error }
+}
+
+function severityVariant(severity) {
+  const s = Number(severity || 0)
+  if (s >= 5) return 'danger'
+  if (s >= 4) return 'overdue'
+  if (s >= 3) return 'submitted'
+  return 'default'
+}
+
+function severityLabel(severity) {
+  const s = Number(severity || 0)
+  if (s >= 5) return 'Critical'
+  if (s >= 4) return 'High'
+  if (s >= 3) return 'Medium'
+  return 'Low'
+}
+
+function insightTypeLabel(t) {
+  const labels = {
+    task_risk: 'Task Risk',
+    deadline_miss: 'Deadline Miss',
+    inactivity: 'Inactivity',
+    productivity_trend: 'Productivity',
+    burnout_risk: 'Burnout Risk',
+    proof_quality: 'Proof Quality',
+    department_performance: 'Department'
+  }
+  return labels[t] || String(t || '').replace(/_/g, ' ')
+}
+
+function computeDeptStats(dept, users, overdueList, needsReviewList, blockedList) {
+  const deptUsers = users.filter(u => userDepartment(u) === dept && String(u.role || '').toUpperCase() === 'INTERN')
+  const userIds = new Set(deptUsers.map(u => u.id))
+  const overdue = overdueList.filter(t => userIds.has(t.assigned_to_id))
+  const needsReview = needsReviewList.filter(t => userIds.has(t.assigned_to_id))
+  const blocked = blockedList.filter(t => userIds.has(t.assigned_to_id))
+  return {
+    members: deptUsers,
+    memberCount: deptUsers.length,
+    overdue,
+    needsReview,
+    blocked,
+    totalStrikes: deptUsers.reduce((s, u) => s + Number(u.strikes || 0), 0)
+  }
+}
+
+function ActivityPanel({ activity, error, loading, hasMore, onLoadMore, onRetry, title = 'Company Activity' }) {
+  return (
+    <div className="panel">
+      <SectionHead
+        icon={<Activity size={16} />}
+        title={title}
+        action={error && (
+          <button className="btn btn-ghost btn-sm" type="button" onClick={onRetry}>Retry</button>
+        )}
+      />
+      {error && <p className="form-error">{error}</p>}
+      {activity.length ? (
+        <div className="activity-feed">
+          {activity.map(a => (
+            <div key={a.id} className="activity-item">
+              <div className="activity-dot" />
+              <div className="activity-body">
+                <p className="activity-text">
+                  <b>{a.actor_name || 'System'}</b> {a.body}
+                </p>
+                {a.event_type && <span className="activity-type">{String(a.event_type).replace(/_/g, ' ')}</span>}
+                {a.task_title && <span className="activity-task">→ {a.task_title}</span>}
+                <span className="activity-time">{timeAgo(a.created_at)}</span>
+              </div>
+            </div>
+          ))}
+          {hasMore && (
+            <button className="btn btn-ghost btn-sm activity-load-more" type="button" disabled={loading} onClick={onLoadMore}>
+              {loading ? 'Loading...' : 'Load more'}
+            </button>
+          )}
+        </div>
+      ) : loading ? (
+        <div className="attention-empty">Loading activity...</div>
+      ) : (
+        <Empty icon={<Activity size={20} />} text="No recent activity" />
+      )}
+    </div>
+  )
+}
+
+function ProofFeedPanel({ proofFeed, limit = 5, title = 'Proof Feed' }) {
+  return (
+    <div className="panel">
+      <SectionHead icon={<Camera size={16} />} title={title} />
+      {proofFeed.length ? (
+        proofFeed.slice(0, limit).map(p => (
+          <div key={p.id} className="proof-item">
+            <div className="proof-header">
+              <b>{p.user}</b>
+              <span className="muted small">{timeAgo(p.created_at)}</span>
+            </div>
+            <p className="proof-note">{p.note}</p>
+            {p.screenshot_data_url && (
+              <img className="proof-thumb" src={p.screenshot_data_url} alt="Proof preview" loading="lazy" />
+            )}
+            {p.is_submission && <Badge variant="badge-submitted">Submission</Badge>}
+          </div>
+        ))
+      ) : (
+        <Empty icon={<Camera size={20} />} text="No proofs yet" />
+      )}
+    </div>
+  )
+}
+
+function AttentionColumn({ icon, title, items, emptyText, variant = 'overdue', renderMeta }) {
+  return (
+    <div className="attention-col">
+      <div className={`attention-head attention-${variant}`}>
+        {icon}
+        <span>{title}</span>
+        <b>{items.length}</b>
+      </div>
+      {items.length ? items.map(t => (
+        <div key={t.id} className="attention-item">
+          <div className="attention-task-title">{t.title}</div>
+          <div className="attention-meta">
+            {renderMeta ? renderMeta(t) : (
+              <>
+                <span>{t.assigned_to_name}</span>
+                {t.due_date && <><span>·</span><span>{niceDate(t.due_date)}</span></>}
+              </>
+            )}
+          </div>
+        </div>
+      )) : <div className="attention-empty">{emptyText}</div>}
+    </div>
+  )
+}
+
+// ── CEO VIEW ─────────────────────────────────────────────────────────────────
+
+function CeoHomeView({ dash, token, me, reload, notify }) {
+  const [applyingStrikes, setApplyingStrikes] = useState(false)
+  const [generatingReport, setGeneratingReport] = useState(false)
+  const { items: feedItems, loading: feedLoading, error: feedError, hasMore: feedHasMore, offset: feedOffset, load: loadFeed } = useActivityFeed(token, { limit: 50 })
+  const { insights, loading: insightsLoading } = useAiInsights(token, me?.role)
+
+  const overdue = dash.attention_overdue || []
+  const needsReview = dash.attention_needs_review || []
+  const blocked = dash.attention_blocked || []
+  const visibleUsers = dash.visible_users || []
+  const founderRank = dash.founder_ranking || []
+  const internRank = dash.intern_ranking || []
+  const ideas = (dash.ideas || []).filter(i => i.status !== 'APPROVED' && i.status !== 'REJECTED')
+  const proofFeed = dash.proof_feed || []
+  const activity = feedItems.length ? feedItems : (dash.recent_activity || [])
+
+  const topScore = [...founderRank, ...internRank].reduce((m, r) => Math.max(m, r.score || 0), 0)
+  const totalStrikes = visibleUsers.reduce((s, u) => s + Number(u.strikes || 0), 0)
+
+  const frontend = useMemo(() => computeDeptStats('frontend', visibleUsers, overdue, needsReview, blocked), [visibleUsers, overdue, needsReview, blocked])
+  const backend = useMemo(() => computeDeptStats('backend', visibleUsers, overdue, needsReview, blocked), [visibleUsers, overdue, needsReview, blocked])
+
+  const criticalInsights = useMemo(
+    () => insights.filter(i => Number(i.severity) >= 4).slice(0, 5),
+    [insights]
+  )
+  const inactiveMembers = useMemo(
+    () => insights.filter(i => i.insight_type === 'inactivity').slice(0, 5),
+    [insights]
+  )
+  const highRiskTasks = useMemo(
+    () => insights.filter(i => i.insight_type === 'task_risk' && Number(i.severity) >= 4).slice(0, 5),
+    [insights]
+  )
+  const bottlenecks = useMemo(() => {
+    const seen = new Set()
+    return [...blocked, ...overdue.filter(t => {
+      if (!t.due_date) return false
+      const d = new Date(t.due_date)
+      if (Number.isNaN(d.getTime())) return false
+      const days = Math.floor((Date.now() - d.getTime()) / 86400000)
+      return days >= 7
+    })].filter(t => {
+      if (!t.id || seen.has(t.id)) return false
+      seen.add(t.id)
+      return true
+    }).slice(0, 6)
+  }, [blocked, overdue])
+
+  // Overdue trend (last 7 days, derived from overdue list)
+  const overdueTrend = useMemo(() => {
+    const buckets = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date()
+      d.setDate(d.getDate() - (6 - i))
+      d.setHours(0, 0, 0, 0)
+      return { dayKey: d.toISOString().slice(0, 10), label: d.toLocaleDateString(undefined, { weekday: 'short' }), count: 0 }
+    })
+    const byKey = Object.fromEntries(buckets.map(b => [b.dayKey, b]))
+    overdue.forEach(t => {
+      if (!t.due_date) return
+      const k = String(t.due_date).slice(0, 10)
+      if (byKey[k]) byKey[k].count += 1
+    })
+    return buckets
+  }, [overdue])
+  const trendMax = Math.max(1, ...overdueTrend.map(b => b.count))
 
   async function applyStrikesNow() {
     setApplyingStrikes(true)
@@ -597,30 +846,33 @@ function HomeTab({ dash, token, me, reload, notify }) {
     finally { setApplyingStrikes(false) }
   }
 
-  const overdue = dash.attention_overdue || []
-  const needsReview = dash.attention_needs_review || []
-  const blocked = dash.attention_blocked || []
-  const activity = feedItems.length ? feedItems : (dash.recent_activity || [])
-  const ideas = (dash.ideas || []).filter(i => i.status !== 'APPROVED' && i.status !== 'REJECTED')
-  const proofFeed = dash.proof_feed || []
-
-  const topScore = [...(dash.founder_ranking || []), ...(dash.intern_ranking || [])]
-    .reduce((m, r) => Math.max(m, r.score || 0), 0)
+  async function generateWeekly() {
+    setGeneratingReport(true)
+    try {
+      const r = await rpc('generate_ai_report_rpc', { p_token: token, p_template_key: 'weekly_company' })
+      notify(`Weekly report generated · ${r.insight_count || 0} insight${r.insight_count === 1 ? '' : 's'}`)
+    } catch (ex) { notify(ex.message || 'Could not generate report', 'error') }
+    finally { setGeneratingReport(false) }
+  }
 
   return (
-    <div className="tab-home home-command-center">
+    <div className="tab-home home-command-center role-ceo">
       <div className="page-header">
         <div>
-          <p className="page-eyebrow">Execution OS</p>
+          <p className="page-eyebrow">Command Center</p>
           <h1 className="page-title">Good {getTimeGreeting()}, {me?.name?.split(' ')[0]}.</h1>
-          <p className="page-subtitle">{me?.title} · {displayRole(me?.role)}</p>
+          <p className="page-subtitle">{me?.title} · {displayRole(me?.role)} · Company-wide view</p>
         </div>
-        {me?.role === 'CEO' && (
-          <button className="btn btn-strike" onClick={applyStrikesNow} disabled={applyingStrikes}>
+        <div className="page-header-actions">
+          <button className="btn btn-ghost btn-sm" onClick={generateWeekly} disabled={generatingReport} type="button">
+            <Activity size={15} />
+            {generatingReport ? 'Generating...' : 'Generate Weekly Report'}
+          </button>
+          <button className="btn btn-strike" onClick={applyStrikesNow} disabled={applyingStrikes} type="button">
             <Flame size={16} />
             {applyingStrikes ? 'Applying...' : 'Apply Strikes'}
           </button>
-        )}
+        </div>
       </div>
 
       <div className="dashboard-section-label">Operational snapshot</div>
@@ -630,141 +882,532 @@ function HomeTab({ dash, token, me, reload, notify }) {
         <StatCard icon={<AlertCircle size={18} />} label="Blocked" value={blocked.length} />
         <StatCard icon={<Lightbulb size={18} />} label="Open Ideas" value={ideas.length} />
         <StatCard icon={<Trophy size={18} />} label="Top Score" value={topScore} />
-        <StatCard icon={<Flame size={18} />} label="Total Strikes" value={
-          (dash.visible_users || []).reduce((s, u) => s + (u.strikes || 0), 0)
-        } />
+        <StatCard icon={<Flame size={18} />} label="Total Strikes" value={totalStrikes} />
+      </div>
+
+      <div className="dashboard-section-label">Department health</div>
+      <div className="dept-health-grid">
+        {[['Frontend', frontend], ['Backend', backend]].map(([label, stats]) => (
+          <div key={label} className="panel dept-health-card">
+            <div className="dept-health-head">
+              <div>
+                <p className="eyebrow">{label}</p>
+                <h3>{stats.memberCount} member{stats.memberCount === 1 ? '' : 's'}</h3>
+              </div>
+              {stats.totalStrikes > 0 && <Badge variant="strike">⚡ {stats.totalStrikes}</Badge>}
+            </div>
+            <div className="dept-health-stats">
+              <div><b>{stats.overdue.length}</b><span>Overdue</span></div>
+              <div><b>{stats.needsReview.length}</b><span>Review</span></div>
+              <div><b>{stats.blocked.length}</b><span>Blocked</span></div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="dashboard-section-label">AI critical insights</div>
+      <div className="panel ai-summary-panel">
+        <SectionHead icon={<Zap size={16} />} title="Top advisory signals" />
+        {insightsLoading ? (
+          <div className="attention-empty">Loading insights...</div>
+        ) : criticalInsights.length ? (
+          <ul className="ai-insight-list">
+            {criticalInsights.map(i => (
+              <li key={i.id} className="ai-insight-row">
+                <Badge variant={severityVariant(i.severity)}>{severityLabel(i.severity)}</Badge>
+                <div className="ai-insight-body">
+                  <b>{i.title}</b>
+                  <span className="muted small">{insightTypeLabel(i.insight_type)}{i.target_department ? ` · ${i.target_department}` : ''}{i.target_user_name ? ` · ${i.target_user_name}` : ''}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Empty icon={<Zap size={20} />} text="No critical insights — generate a report from /reports." />
+        )}
       </div>
 
       <div className="dashboard-section-label">Execution queues</div>
       <div className="attention-grid">
-        {/* Overdue */}
-        <div className="attention-col">
-          <div className="attention-head attention-overdue">
-            <AlertCircle size={15} />
-            <span>Overdue</span>
-            <b>{overdue.length}</b>
-          </div>
-          {overdue.length
-            ? overdue.map(t => (
-              <div key={t.id} className="attention-item">
-                <div className="attention-task-title">{t.title}</div>
-                <div className="attention-meta">
-                  <span>{t.assigned_to_name}</span>
-                  <span>·</span>
-                  <span className="text-overdue">{niceDate(t.due_date)}</span>
-                </div>
-              </div>
-            ))
-            : <div className="attention-empty">No overdue tasks</div>
-          }
-        </div>
+        <AttentionColumn icon={<AlertCircle size={15} />} variant="overdue" title="Overdue" items={overdue} emptyText="No overdue tasks" />
+        <AttentionColumn icon={<Zap size={15} />} variant="review" title="Needs Review" items={needsReview} emptyText="No submissions pending review"
+          renderMeta={t => (<><span>{t.assigned_to_name}</span><span>·</span><Badge variant="submitted">Submitted</Badge></>)} />
+        <AttentionColumn icon={<AlertCircle size={15} />} variant="blocked" title="Blocked" items={blocked} emptyText="No blocked tasks"
+          renderMeta={t => (<><span>{t.assigned_to_name}</span><Badge variant="priority-urgent">URGENT</Badge></>)} />
+      </div>
 
-        {/* Needs Review */}
-        <div className="attention-col">
-          <div className="attention-head attention-review">
-            <Zap size={15} />
-            <span>Needs Review</span>
-            <b>{needsReview.length}</b>
-          </div>
-          {needsReview.length
-            ? needsReview.map(t => (
-              <div key={t.id} className="attention-item">
-                <div className="attention-task-title">{t.title}</div>
-                <div className="attention-meta">
-                  <span>{t.assigned_to_name}</span>
-                  <span>·</span>
-                  <Badge variant="submitted">Submitted</Badge>
-                </div>
-              </div>
-            ))
-            : <div className="attention-empty">No submissions pending review</div>
-          }
+      <div className="dashboard-section-label">Risk & rankings</div>
+      <div className="ceo-grid-2col">
+        <div className="panel">
+          <SectionHead icon={<AlertCircle size={16} />} title="Bottlenecks" />
+          {bottlenecks.length ? (
+            <ul className="bottleneck-list">
+              {bottlenecks.map(t => (
+                <li key={t.id} className="bottleneck-row">
+                  <div>
+                    <b>{t.title}</b>
+                    <span className="muted small">{t.assigned_to_name}{t.due_date ? ` · ${niceDate(t.due_date)}` : ''}</span>
+                  </div>
+                  <Badge variant={t.status === 'BLOCKED' ? 'blocked' : 'overdue'}>{t.status === 'BLOCKED' ? 'BLOCKED' : 'STALLED'}</Badge>
+                </li>
+              ))}
+            </ul>
+          ) : <Empty icon={<CheckCircle size={20} />} text="No active bottlenecks" />}
         </div>
+        <div className="panel">
+          <SectionHead icon={<AlertCircle size={16} />} title="High-risk tasks" />
+          {highRiskTasks.length ? (
+            <ul className="bottleneck-list">
+              {highRiskTasks.map(i => (
+                <li key={i.id} className="bottleneck-row">
+                  <div>
+                    <b>{i.title}</b>
+                    <span className="muted small">{i.target_user_name || i.target_department || '—'}</span>
+                  </div>
+                  <Badge variant={severityVariant(i.severity)}>{severityLabel(i.severity)}</Badge>
+                </li>
+              ))}
+            </ul>
+          ) : <Empty icon={<CheckCircle size={20} />} text="No high-risk tasks flagged" />}
+        </div>
+      </div>
 
-        {/* Blocked */}
-        <div className="attention-col">
-          <div className="attention-head attention-blocked">
-            <AlertCircle size={15} />
-            <span>Blocked</span>
-            <b>{blocked.length}</b>
-          </div>
-          {blocked.length
-            ? blocked.map(t => (
-              <div key={t.id} className="attention-item">
-                <div className="attention-task-title">{t.title}</div>
-                <div className="attention-meta">
-                  <span>{t.assigned_to_name}</span>
-                  <Badge variant="priority-urgent">URGENT</Badge>
-                </div>
+      <div className="ceo-grid-2col">
+        <div className="panel ranking-panel">
+          <SectionHead icon={<Trophy size={16} />} title="Top founders" />
+          {founderRank.length ? founderRank.slice(0, 5).map(r => (
+            <div key={r.id} className={`rank-row ${r.strikes >= 3 ? 'rank-danger' : ''}`}>
+              <div className="rank-pos">#{r.rank}</div>
+              <div className="rank-info">
+                <b>{r.name}</b>
+                <span className="muted small">{r.title} · {r.done}/{r.total} done · {r.overdue || 0} overdue</span>
               </div>
-            ))
-            : <div className="attention-empty">No blocked tasks</div>
-          }
+              <StrikeBadge count={r.strikes} />
+              <div className="rank-score">{r.score}</div>
+            </div>
+          )) : <Empty icon={<Trophy size={20} />} text="No founder activity yet" />}
+        </div>
+        <div className="panel ranking-panel">
+          <SectionHead icon={<Star size={16} />} title="Top interns" />
+          {internRank.length ? internRank.slice(0, 5).map(r => (
+            <div key={r.id} className={`rank-row ${r.strikes >= 3 ? 'rank-danger' : ''}`}>
+              <div className="rank-pos">#{r.rank}</div>
+              <div className="rank-info">
+                <b>{r.name}</b>
+                <span className="muted small">{r.title} · {r.done}/{r.total} done · {r.department || '—'}</span>
+              </div>
+              <StrikeBadge count={r.strikes} />
+              <div className="rank-score">{r.score}</div>
+            </div>
+          )) : <Empty icon={<Star size={20} />} text="No intern activity yet" />}
+        </div>
+      </div>
+
+      <div className="dashboard-section-label">Trends & operations</div>
+      <div className="ceo-grid-2col">
+        <div className="panel">
+          <SectionHead icon={<Activity size={16} />} title="Overdue trend (7 days)" />
+          <div className="trend-bars">
+            {overdueTrend.map(b => (
+              <div key={b.dayKey} className="trend-bar-col">
+                <div className="trend-bar" style={{ height: `${Math.round((b.count / trendMax) * 60) + 4}px` }} title={`${b.count} overdue on ${b.label}`} />
+                <span className="trend-label">{b.label}</span>
+                <small>{b.count}</small>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="panel">
+          <SectionHead icon={<Users size={16} />} title="Inactive members" />
+          {inactiveMembers.length ? (
+            <ul className="bottleneck-list">
+              {inactiveMembers.map(i => (
+                <li key={i.id} className="bottleneck-row">
+                  <div>
+                    <b>{i.target_user_name || 'Unknown'}</b>
+                    <span className="muted small">{i.description}</span>
+                  </div>
+                  <Badge variant={severityVariant(i.severity)}>{severityLabel(i.severity)}</Badge>
+                </li>
+              ))}
+            </ul>
+          ) : <Empty icon={<Users size={20} />} text="Everyone active" />}
+        </div>
+      </div>
+
+      <div className="ceo-grid-2col">
+        <div className="panel">
+          <SectionHead icon={<Zap size={16} />} title="Review queue summary" />
+          <p className="muted">{needsReview.length} submission{needsReview.length === 1 ? '' : 's'} awaiting review across the company.</p>
+          <ul className="bottleneck-list">
+            {needsReview.slice(0, 5).map(t => (
+              <li key={t.id} className="bottleneck-row">
+                <div>
+                  <b>{t.title}</b>
+                  <span className="muted small">{t.assigned_to_name}</span>
+                </div>
+                <Badge variant="submitted">Submitted</Badge>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="panel finance-placeholder">
+          <SectionHead icon={<Activity size={16} />} title="Financial / project tracking" />
+          <p className="muted">Reserved for a later phase. No financial or project schema exists yet — adding it here without backing tables would conflict with the master plan's "no random features" rule.</p>
         </div>
       </div>
 
       <div className="dashboard-section-label">Recent movement</div>
       <div className="home-bottom-grid">
-        {/* Recent Activity */}
-        <div className="panel">
-          <SectionHead
-            icon={<Activity size={16} />}
-            title="Company Activity"
-            action={feedError && (
-              <button className="btn btn-ghost btn-sm" type="button" onClick={() => loadActivityFeed({ offset: 0 })}>
-                Retry
-              </button>
-            )}
-          />
-          {feedError && <p className="form-error">{feedError}</p>}
-          {activity.length
-            ? <div className="activity-feed">{activity.map(a => (
-              <div key={a.id} className="activity-item">
-                <div className="activity-dot" />
-                <div className="activity-body">
-                  <p className="activity-text">
-                    <b>{a.actor_name || 'System'}</b> {a.body}
-                  </p>
-                  {a.event_type && <span className="activity-type">{String(a.event_type).replace(/_/g, ' ')}</span>}
-                  {a.task_title && <span className="activity-task">→ {a.task_title}</span>}
-                  <span className="activity-time">{timeAgo(a.created_at)}</span>
-                </div>
-              </div>
-            ))}
-              {feedHasMore && (
-                <button className="btn btn-ghost btn-sm activity-load-more" type="button" disabled={feedLoading}
-                  onClick={() => loadActivityFeed({ offset: feedOffset, append: true })}>
-                  {feedLoading ? 'Loading...' : 'Load more'}
-                </button>
-              )}
-            </div>
-            : feedLoading
-              ? <div className="attention-empty">Loading activity...</div>
-              : <Empty icon={<Activity size={20} />} text="No recent activity" />
-          }
-        </div>
+        <ActivityPanel
+          activity={activity}
+          error={feedError}
+          loading={feedLoading}
+          hasMore={feedHasMore}
+          onLoadMore={() => loadFeed({ off: feedOffset, append: true })}
+          onRetry={() => loadFeed({ off: 0 })}
+        />
+        <ProofFeedPanel proofFeed={proofFeed} />
+      </div>
+    </div>
+  )
+}
 
-        {/* Quick Proof Feed */}
-        <div className="panel">
-          <SectionHead icon={<Camera size={16} />} title="Proof Feed" />
-          {proofFeed.length
-            ? proofFeed.slice(0, 5).map(p => (
-              <div key={p.id} className="proof-item">
-                <div className="proof-header">
-                  <b>{p.user}</b>
-                  <span className="muted small">{timeAgo(p.created_at)}</span>
-                </div>
-                <p className="proof-note">{p.note}</p>
-                {p.screenshot_data_url && (
-                  <img className="proof-thumb" src={p.screenshot_data_url} alt="Proof preview" loading="lazy" />
-                )}
-                {p.is_submission && <Badge variant="badge-submitted">Submission</Badge>}
-              </div>
-            ))
-            : <Empty icon={<Camera size={20} />} text="No proofs yet" />
-          }
+// ── FOUNDER / DEPT-HEAD VIEW ─────────────────────────────────────────────────
+
+function FounderHomeView({ dash, token, me, reload, notify }) {
+  const myDept = userDepartment(me)
+  const { items: feedItems, loading: feedLoading, error: feedError, hasMore: feedHasMore, offset: feedOffset, load: loadFeed } = useActivityFeed(token, { limit: 50 })
+  const { insights, loading: insightsLoading } = useAiInsights(token, me?.role)
+
+  const visibleUsers = dash.visible_users || []
+  const allOverdue = dash.attention_overdue || []
+  const allNeedsReview = dash.attention_needs_review || []
+  const allBlocked = dash.attention_blocked || []
+  const proofFeed = dash.proof_feed || []
+  const internRank = dash.intern_ranking || []
+  const activity = feedItems.length ? feedItems : (dash.recent_activity || [])
+
+  const deptStats = useMemo(
+    () => computeDeptStats(myDept, visibleUsers, allOverdue, allNeedsReview, allBlocked),
+    [myDept, visibleUsers, allOverdue, allNeedsReview, allBlocked]
+  )
+
+  const deptInterns = deptStats.members
+  const deptInternIds = new Set(deptInterns.map(u => u.id))
+  const deptInternRank = internRank.filter(r => r.department === myDept || deptInternIds.has(r.id))
+  const deptTopScore = deptInternRank.reduce((m, r) => Math.max(m, r.score || 0), 0)
+
+  // Workload: tasks per intern
+  const workload = useMemo(() => {
+    return deptInterns.map(u => {
+      const overdueCount = allOverdue.filter(t => t.assigned_to_id === u.id).length
+      const reviewCount = allNeedsReview.filter(t => t.assigned_to_id === u.id).length
+      const blockedCount = allBlocked.filter(t => t.assigned_to_id === u.id).length
+      const total = overdueCount + reviewCount + blockedCount
+      return { user: u, overdue: overdueCount, review: reviewCount, blocked: blockedCount, total }
+    }).sort((a, b) => b.total - a.total)
+  }, [deptInterns, allOverdue, allNeedsReview, allBlocked])
+  const workloadMax = Math.max(1, ...workload.map(w => w.total))
+
+  // Department-scoped proof feed
+  const deptProofFeed = useMemo(
+    () => proofFeed.filter(p => {
+      // Match by user name → user object → department
+      const u = visibleUsers.find(v => v?.name === p?.user || v?.username === p?.user)
+      return u ? userDepartment(u) === myDept : false
+    }),
+    [proofFeed, visibleUsers, myDept]
+  )
+
+  return (
+    <div className="tab-home home-command-center role-founder">
+      <div className="page-header">
+        <div>
+          <p className="page-eyebrow">{myDept ? `${myDept.charAt(0).toUpperCase()}${myDept.slice(1)} team` : 'Team workspace'}</p>
+          <h1 className="page-title">Good {getTimeGreeting()}, {me?.name?.split(' ')[0]}.</h1>
+          <p className="page-subtitle">{me?.title} · {displayRole(me?.role)}{myDept ? ` · ${myDept} department` : ''}</p>
         </div>
       </div>
+
+      <div className="dashboard-section-label">Department snapshot</div>
+      <div className="stats-row">
+        <StatCard icon={<AlertCircle size={18} />} label="Dept Overdue" value={deptStats.overdue.length} accent />
+        <StatCard icon={<Zap size={18} />} label="Dept Review" value={deptStats.needsReview.length} />
+        <StatCard icon={<AlertCircle size={18} />} label="Dept Blocked" value={deptStats.blocked.length} />
+        <StatCard icon={<Users size={18} />} label="Interns" value={deptInterns.length} />
+        <StatCard icon={<Trophy size={18} />} label="Dept Top Score" value={deptTopScore} />
+        <StatCard icon={<Flame size={18} />} label="Dept Strikes" value={deptStats.totalStrikes} />
+      </div>
+
+      <div className="dashboard-section-label">Intern management</div>
+      <div className="panel">
+        <SectionHead icon={<Users size={16} />} title="Your interns" />
+        {deptInterns.length ? (
+          <div className="founder-intern-list">
+            {deptInterns.map(u => {
+              const w = workload.find(x => x.user.id === u.id) || { overdue: 0, review: 0, blocked: 0 }
+              const rank = deptInternRank.find(r => r.id === u.id)
+              return (
+                <div key={u.id} className={`founder-intern-row ${u.strikes >= 3 ? 'rank-danger' : ''}`}>
+                  <div className="founder-intern-info">
+                    <b>{u.name}</b>
+                    <span className="muted small">{u.title}{rank ? ` · #${rank.rank} · ${rank.done}/${rank.total} done` : ''}</span>
+                  </div>
+                  <div className="founder-intern-counts">
+                    {w.overdue > 0 && <Badge variant="overdue">{w.overdue} overdue</Badge>}
+                    {w.review > 0 && <Badge variant="submitted">{w.review} review</Badge>}
+                    {w.blocked > 0 && <Badge variant="blocked">{w.blocked} blocked</Badge>}
+                    {(w.overdue + w.review + w.blocked) === 0 && <span className="muted small">Clear</span>}
+                  </div>
+                  <StrikeBadge count={u.strikes} />
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <Empty icon={<Users size={20} />} text="No interns assigned to your department yet." />
+        )}
+      </div>
+
+      <div className="dashboard-section-label">Execution queues</div>
+      <div className="attention-grid">
+        <AttentionColumn icon={<AlertCircle size={15} />} variant="overdue" title="Overdue" items={deptStats.overdue} emptyText="No overdue tasks in your department" />
+        <AttentionColumn icon={<Zap size={15} />} variant="review" title="Needs Review" items={deptStats.needsReview} emptyText="No submissions pending review"
+          renderMeta={t => (<><span>{t.assigned_to_name}</span><span>·</span><Badge variant="submitted">Submitted</Badge></>)} />
+        <AttentionColumn icon={<AlertCircle size={15} />} variant="blocked" title="Blocked" items={deptStats.blocked} emptyText="No blocked tasks in your department"
+          renderMeta={t => (<><span>{t.assigned_to_name}</span><Badge variant="priority-urgent">URGENT</Badge></>)} />
+      </div>
+
+      <div className="dashboard-section-label">Workload & performance</div>
+      <div className="ceo-grid-2col">
+        <div className="panel">
+          <SectionHead icon={<Activity size={16} />} title="Workload by intern" />
+          {workload.length ? (
+            <div className="workload-list">
+              {workload.map(w => (
+                <div key={w.user.id} className="workload-row">
+                  <span className="workload-name">{w.user.name}</span>
+                  <div className="workload-bar-wrap">
+                    <div className="workload-bar workload-overdue" style={{ width: `${(w.overdue / workloadMax) * 100}%` }} />
+                    <div className="workload-bar workload-review" style={{ width: `${(w.review / workloadMax) * 100}%` }} />
+                    <div className="workload-bar workload-blocked" style={{ width: `${(w.blocked / workloadMax) * 100}%` }} />
+                  </div>
+                  <span className="workload-total">{w.total}</span>
+                </div>
+              ))}
+            </div>
+          ) : <Empty icon={<Activity size={20} />} text="No active workload" />}
+        </div>
+        <div className="panel ranking-panel">
+          <SectionHead icon={<Star size={16} />} title="Performance trends" />
+          {deptInternRank.length ? deptInternRank.slice(0, 6).map(r => (
+            <div key={r.id} className={`rank-row ${r.strikes >= 3 ? 'rank-danger' : ''}`}>
+              <div className="rank-pos">#{r.rank}</div>
+              <div className="rank-info">
+                <b>{r.name}</b>
+                <span className="muted small">{r.done}/{r.total} done · {r.submissions || 0} proofs · {r.overdue || 0} overdue</span>
+              </div>
+              <StrikeBadge count={r.strikes} />
+              <div className="rank-score">{r.score}</div>
+            </div>
+          )) : <Empty icon={<Star size={20} />} text="No intern performance data yet" />}
+        </div>
+      </div>
+
+      <div className="dashboard-section-label">Department signals</div>
+      <div className="panel ai-summary-panel">
+        <SectionHead icon={<Zap size={16} />} title="AI insights (your department)" />
+        {insightsLoading ? (
+          <div className="attention-empty">Loading insights...</div>
+        ) : insights.length ? (
+          <ul className="ai-insight-list">
+            {insights.slice(0, 6).map(i => (
+              <li key={i.id} className="ai-insight-row">
+                <Badge variant={severityVariant(i.severity)}>{severityLabel(i.severity)}</Badge>
+                <div className="ai-insight-body">
+                  <b>{i.title}</b>
+                  <span className="muted small">{insightTypeLabel(i.insight_type)}{i.target_user_name ? ` · ${i.target_user_name}` : ''}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Empty icon={<Zap size={20} />} text="No insights for your department right now." />
+        )}
+      </div>
+
+      <div className="dashboard-section-label">Recent movement</div>
+      <div className="home-bottom-grid">
+        <ActivityPanel
+          title="Department activity"
+          activity={activity}
+          error={feedError}
+          loading={feedLoading}
+          hasMore={feedHasMore}
+          onLoadMore={() => loadFeed({ off: feedOffset, append: true })}
+          onRetry={() => loadFeed({ off: 0 })}
+        />
+        <ProofFeedPanel proofFeed={deptProofFeed} title="Proof review shortcuts" />
+      </div>
+    </div>
+  )
+}
+
+// ── INTERN VIEW ──────────────────────────────────────────────────────────────
+
+function InternHomeView({ dash, token, me, reload, notify }) {
+  const [focusMode, setFocusMode] = useState(false)
+
+  const allOverdue = dash.attention_overdue || []
+  const allNeedsReview = dash.attention_needs_review || []
+  const allBlocked = dash.attention_blocked || []
+  const proofFeed = dash.proof_feed || []
+  const myId = me?.id
+
+  // Strict client-side scoping to my own tasks (defense in depth — server already filters)
+  const myOverdue = useMemo(() => allOverdue.filter(t => t.assigned_to_id === myId), [allOverdue, myId])
+  const myNeedsReview = useMemo(() => allNeedsReview.filter(t => t.assigned_to_id === myId), [allNeedsReview, myId])
+  const myBlocked = useMemo(() => allBlocked.filter(t => t.assigned_to_id === myId), [allBlocked, myId])
+  const myProofs = useMemo(() => proofFeed.filter(p => p.user === me?.name || p.user === me?.username), [proofFeed, me])
+
+  // "Today's tasks" = my non-DONE tasks due today or coming up soon
+  // Pull from visible tasks set within dash if available; otherwise show queues
+  const todayKey = new Date().toISOString().slice(0, 10)
+  const allMyActive = useMemo(() => {
+    const seen = new Set()
+    return [...myOverdue, ...myNeedsReview, ...myBlocked].filter(t => {
+      if (!t.id || seen.has(t.id)) return false
+      seen.add(t.id)
+      return true
+    })
+  }, [myOverdue, myNeedsReview, myBlocked])
+
+  const todayTasks = useMemo(
+    () => allMyActive.filter(t => !t.due_date || String(t.due_date).slice(0, 10) <= todayKey).slice(0, 8),
+    [allMyActive, todayKey]
+  )
+  const upcoming = useMemo(() => {
+    const sevenDays = new Date()
+    sevenDays.setDate(sevenDays.getDate() + 7)
+    const cutoff = sevenDays.toISOString().slice(0, 10)
+    return allMyActive
+      .filter(t => t.due_date && String(t.due_date).slice(0, 10) > todayKey && String(t.due_date).slice(0, 10) <= cutoff)
+      .slice(0, 6)
+  }, [allMyActive, todayKey])
+
+  // "Changes requested" — tasks where status is CHANGES_REQUESTED or REJECTED for me
+  const changesRequested = useMemo(
+    () => allMyActive.filter(t => ['CHANGES_REQUESTED', 'REJECTED'].includes(String(t.status || '').toUpperCase())),
+    [allMyActive]
+  )
+
+  // Personal progress (from intern_ranking, my row only)
+  const myRank = useMemo(() => (dash.intern_ranking || []).find(r => r.id === myId), [dash.intern_ranking, myId])
+
+  return (
+    <div className={`tab-home home-command-center role-intern ${focusMode ? 'focus-mode-on' : ''}`}>
+      <div className="page-header">
+        <div>
+          <p className="page-eyebrow">Today</p>
+          <h1 className="page-title">Hi {me?.name?.split(' ')[0]}.</h1>
+          <p className="page-subtitle">{me?.title} · {displayRole(me?.role)}</p>
+        </div>
+        <button className={`btn btn-ghost btn-sm focus-toggle ${focusMode ? 'is-on' : ''}`} type="button" onClick={() => setFocusMode(v => !v)}>
+          <Zap size={15} />
+          {focusMode ? 'Exit focus mode' : 'Focus mode'}
+        </button>
+      </div>
+
+      <div className="dashboard-section-label">My snapshot</div>
+      <div className="stats-row">
+        <StatCard icon={<Clock size={18} />} label="Today" value={todayTasks.length} />
+        <StatCard icon={<AlertCircle size={18} />} label="Overdue" value={myOverdue.length} accent />
+        <StatCard icon={<Zap size={18} />} label="In Review" value={myNeedsReview.length} />
+        <StatCard icon={<MessageSquare size={18} />} label="Changes" value={changesRequested.length} />
+        {myRank && (
+          <>
+            <StatCard icon={<CheckCircle size={18} />} label="My Score" value={myRank.score || 0} />
+            <StatCard icon={<Star size={18} />} label="My Rank" value={`#${myRank.rank || '—'}`} />
+          </>
+        )}
+      </div>
+
+      <div className="dashboard-section-label">Today’s tasks</div>
+      <div className="panel intern-today-panel">
+        {todayTasks.length ? (
+          <ul className="intern-task-list">
+            {todayTasks.map(t => (
+              <li key={t.id} className="intern-task-row">
+                <div>
+                  <b>{t.title}</b>
+                  <span className="muted small intern-task-meta">
+                    <Badge variant={displayStatusBadge(t.status)}>{t.status}</Badge>
+                    {t.due_date && <span>· due {niceDate(t.due_date)}</span>}
+                  </span>
+                </div>
+                {t.priority && <Badge variant={`priority-${String(t.priority).toLowerCase()}`}>{t.priority}</Badge>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Empty icon={<CheckCircle size={20} />} text="You're clear for today. Pick up the next deadline below." />
+        )}
+      </div>
+
+      {!focusMode && (
+        <>
+          <div className="dashboard-section-label">Coming up (7 days)</div>
+          <div className="panel">
+            {upcoming.length ? (
+              <ul className="intern-task-list">
+                {upcoming.map(t => (
+                  <li key={t.id} className="intern-task-row">
+                    <div>
+                      <b>{t.title}</b>
+                      <span className="muted small">due {niceDate(t.due_date)}</span>
+                    </div>
+                    {t.priority && <Badge variant={`priority-${String(t.priority).toLowerCase()}`}>{t.priority}</Badge>}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <Empty icon={<CalendarDays size={20} />} text="Nothing due in the next 7 days." />
+            )}
+          </div>
+
+          <div className="dashboard-section-label">Reviews & changes</div>
+          <div className="ceo-grid-2col">
+            <div className="panel">
+              <SectionHead icon={<Zap size={16} />} title="Pending reviews" />
+              {myNeedsReview.length ? myNeedsReview.map(t => (
+                <div key={t.id} className="intern-task-row">
+                  <div>
+                    <b>{t.title}</b>
+                    <span className="muted small">Awaiting reviewer feedback</span>
+                  </div>
+                  <Badge variant="submitted">Submitted</Badge>
+                </div>
+              )) : <Empty icon={<Zap size={20} />} text="No submissions pending review." />}
+            </div>
+            <div className="panel">
+              <SectionHead icon={<MessageSquare size={16} />} title="Changes requested" />
+              {changesRequested.length ? changesRequested.map(t => (
+                <div key={t.id} className="intern-task-row">
+                  <div>
+                    <b>{t.title}</b>
+                    <span className="muted small">Open the task to view reviewer notes.</span>
+                  </div>
+                  <Badge variant="rejected">{t.status}</Badge>
+                </div>
+              )) : <Empty icon={<CheckCircle size={20} />} text="No changes requested right now." />}
+            </div>
+          </div>
+
+          <div className="dashboard-section-label">My recent proofs</div>
+          <ProofFeedPanel proofFeed={myProofs} limit={4} title="Proof submissions" />
+        </>
+      )}
     </div>
   )
 }
