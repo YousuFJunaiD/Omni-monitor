@@ -3524,6 +3524,13 @@ function MoreTab({ dash, token, me, reload, notify, goToTask, goToTab }) {
   const [showRead, setShowRead] = useState(false)
   // Phase 8: active category filter for the notification panel. 'All' = no filter.
   const [activeCategory, setActiveCategory] = useState('All')
+  // Phase 9: admin diagnostics (CEO-only — never call these RPCs unless me.role==='CEO').
+  const [auditLogs, setAuditLogs] = useState([])
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditFilter, setAuditFilter] = useState('')
+  const [systemHealth, setSystemHealth] = useState(null)
+  const [healthLoading, setHealthLoading] = useState(false)
+  const [adminOpen, setAdminOpen] = useState(false)
 
   async function loadReport(period) {
     setReportLoading(true)
@@ -3579,6 +3586,50 @@ function MoreTab({ dash, token, me, reload, notify, goToTask, goToTab }) {
   }
 
   useEffect(() => { loadNotifications() }, [token, showRead])
+
+  // Phase 9: Admin diagnostics loaders. CEO-only. Server-side enforces RBAC,
+  // but we also guard client-side to avoid even firing the RPCs for non-CEO.
+  async function loadAuditLogs() {
+    if (me?.role !== 'CEO') return
+    setAuditLoading(true)
+    try {
+      const r = await rpc('get_audit_logs_rpc', {
+        p_token: token,
+        p_limit: 100,
+        p_offset: 0,
+        p_action: auditFilter || null,
+        p_actor_id: null
+      })
+      setAuditLogs(arrayFromRpc(r, ['items', 'data']))
+    } catch (ex) {
+      setAuditLogs([])
+      // Don't notify on silent admin panel load failure — surface only if user explicitly retried.
+    } finally {
+      setAuditLoading(false)
+    }
+  }
+
+  async function loadSystemHealth() {
+    if (me?.role !== 'CEO') return
+    setHealthLoading(true)
+    try {
+      const r = await rpc('get_system_health_rpc', { p_token: token })
+      setSystemHealth(r || null)
+    } catch (ex) {
+      setSystemHealth(null)
+    } finally {
+      setHealthLoading(false)
+    }
+  }
+
+  // Lazy: only fetch when the admin section is opened (not on every /more visit).
+  useEffect(() => {
+    if (adminOpen && me?.role === 'CEO') {
+      loadAuditLogs()
+      loadSystemHealth()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminOpen, auditFilter, token, me?.role])
 
   async function markRead(id) {
     try {
@@ -3702,6 +3753,141 @@ function MoreTab({ dash, token, me, reload, notify, goToTask, goToTab }) {
                   <Download size={14} /> Download AI JSON
                 </button>
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Phase 9: Admin Diagnostics — CEO-only audit log + system health.
+            Server enforces RBAC via get_audit_logs_rpc / get_system_health_rpc
+            ('Not allowed' for non-CEO). Client also guards: the toggle button
+            only renders for CEO, and loaders short-circuit if role !== CEO. */}
+        {me?.role === 'CEO' && (
+          <div className="panel panel-admin">
+            <div className="admin-head">
+              <SectionHead icon={<Activity size={16} />} title="Admin diagnostics" />
+              <button className="btn btn-sm" type="button" onClick={() => setAdminOpen(v => !v)}>
+                {adminOpen ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            {adminOpen && (
+              <>
+                {/* System Health summary cards */}
+                <div className="admin-health-grid">
+                  {healthLoading && <div className="muted small">Loading diagnostics...</div>}
+                  {!healthLoading && systemHealth && systemHealth.ok && (
+                    <>
+                      <div className={`admin-stat ${systemHealth.failed_ai_reports?.count > 0 ? 'admin-stat-danger' : ''}`}>
+                        <div className="admin-stat-label">Failed AI reports (30d)</div>
+                        <div className="admin-stat-value">{systemHealth.failed_ai_reports?.count ?? 0}</div>
+                      </div>
+                      <div className={`admin-stat ${systemHealth.stuck_under_review?.count > 0 ? 'admin-stat-danger' : ''}`}>
+                        <div className="admin-stat-label">Stuck in review (&gt;7d)</div>
+                        <div className="admin-stat-value">{systemHealth.stuck_under_review?.count ?? 0}</div>
+                      </div>
+                      <div className={`admin-stat ${systemHealth.stuck_submitted?.count > 0 ? 'admin-stat-danger' : ''}`}>
+                        <div className="admin-stat-label">Stuck submitted (&gt;5d)</div>
+                        <div className="admin-stat-value">{systemHealth.stuck_submitted?.count ?? 0}</div>
+                      </div>
+                      <div className={`admin-stat ${systemHealth.overdue_unfinished > 0 ? 'admin-stat-warn' : ''}`}>
+                        <div className="admin-stat-label">Overdue unfinished</div>
+                        <div className="admin-stat-value">{systemHealth.overdue_unfinished ?? 0}</div>
+                      </div>
+                      <div className="admin-stat">
+                        <div className="admin-stat-label">Paused recurring</div>
+                        <div className="admin-stat-value">{systemHealth.paused_recurring ?? 0}</div>
+                      </div>
+                      <div className="admin-stat">
+                        <div className="admin-stat-label">Audit events (24h)</div>
+                        <div className="admin-stat-value">{systemHealth.heartbeat?.recent_audit_count_24h ?? 0}</div>
+                      </div>
+                    </>
+                  )}
+                  {!healthLoading && systemHealth && !systemHealth.ok && (
+                    <div className="muted small">Diagnostics unavailable: {systemHealth.error || 'unknown error'}</div>
+                  )}
+                </div>
+
+                {/* Stuck-task drill-down lists */}
+                {systemHealth?.ok && (systemHealth.stuck_under_review?.count > 0 || systemHealth.stuck_submitted?.count > 0) && (
+                  <div className="admin-stuck-lists">
+                    {systemHealth.stuck_under_review?.count > 0 && (
+                      <div className="admin-stuck-block">
+                        <b className="admin-stuck-title">Tasks stuck in review (&gt;7 days)</b>
+                        <ul className="admin-stuck-list">
+                          {(systemHealth.stuck_under_review.items || []).map(it => (
+                            <li key={it.id} className="admin-stuck-row">
+                              <span className="admin-stuck-task">{it.title}</span>
+                              <span className="muted small">last activity {timeAgo(it.last_activity_at)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {systemHealth.stuck_submitted?.count > 0 && (
+                      <div className="admin-stuck-block">
+                        <b className="admin-stuck-title">Tasks awaiting review (&gt;5 days)</b>
+                        <ul className="admin-stuck-list">
+                          {(systemHealth.stuck_submitted.items || []).map(it => (
+                            <li key={it.id} className="admin-stuck-row">
+                              <span className="admin-stuck-task">{it.title}</span>
+                              <span className="muted small">submitted {timeAgo(it.last_activity_at)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Failed AI report list */}
+                {systemHealth?.ok && systemHealth.failed_ai_reports?.count > 0 && (
+                  <div className="admin-stuck-block">
+                    <b className="admin-stuck-title">Failed AI report runs (last 30 days)</b>
+                    <ul className="admin-stuck-list">
+                      {(systemHealth.failed_ai_reports.recent || []).map(r => (
+                        <li key={r.id} className="admin-stuck-row">
+                          <span className="admin-stuck-task">{r.template_key} · {r.provider_used}</span>
+                          <span className="muted small">{r.error_message || 'no error message'} · {timeAgo(r.started_at)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Audit log table */}
+                <div className="admin-section-divider" />
+                <div className="admin-audit-head">
+                  <b>Audit log</b>
+                  <div className="admin-audit-actions">
+                    <input
+                      className="input input-sm"
+                      type="text"
+                      placeholder="Filter action (e.g. APPLY_STRIKE, TASK_REVIEW)"
+                      value={auditFilter}
+                      onChange={e => setAuditFilter(e.target.value.trim().toUpperCase())}
+                    />
+                    <button className="btn btn-sm" type="button" onClick={() => loadAuditLogs()}>Refresh</button>
+                  </div>
+                </div>
+                {auditLoading ? (
+                  <div className="muted small">Loading audit log...</div>
+                ) : auditLogs.length > 0 ? (
+                  <div className="admin-audit-list">
+                    {auditLogs.map(a => (
+                      <div key={a.id} className="admin-audit-row">
+                        <div className="admin-audit-action">{a.action}</div>
+                        <div className="admin-audit-body">
+                          <span>{a.actor_name || 'system'}{a.actor_role ? ` · ${a.actor_role}` : ''}</span>
+                          {a.target_table && <span className="muted small"> on {a.target_table}{a.target_id ? `:${String(a.target_id).slice(0, 8)}` : ''}</span>}
+                        </div>
+                        <div className="admin-audit-time muted small">{timeAgo(a.created_at)}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="muted small">No audit entries{auditFilter ? ` matching "${auditFilter}"` : ''}.</div>
+                )}
+              </>
             )}
           </div>
         )}
