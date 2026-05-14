@@ -1718,7 +1718,7 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 .panel-reports {}
 .panel-notifications {}
 
-.report-actions { display: flex; gap: 8px; margin: 12px 0; }
+.report-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 
 .report-content {
   margin-top: 12px;
