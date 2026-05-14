@@ -560,6 +560,32 @@ function StrikeBadge({ count = 0 }) {
 
 function HomeTab({ dash, token, me, reload, notify }) {
   const [applyingStrikes, setApplyingStrikes] = useState(false)
+  const [feedItems, setFeedItems] = useState([])
+  const [feedLoading, setFeedLoading] = useState(false)
+  const [feedError, setFeedError] = useState('')
+  const [feedOffset, setFeedOffset] = useState(0)
+  const [feedHasMore, setFeedHasMore] = useState(false)
+
+  async function loadActivityFeed({ offset = 0, append = false } = {}) {
+    if (!token) return
+    setFeedLoading(true)
+    setFeedError('')
+    try {
+      const data = await rpc('get_activity_feed_rpc', { p_token: token, p_limit: 50, p_offset: offset })
+      const items = arrayFromRpc(data, ['items', 'data', 'activity'])
+      setFeedItems(prev => append ? [...prev, ...items] : items)
+      setFeedOffset(offset + items.length)
+      setFeedHasMore(items.length === 50)
+    } catch (ex) {
+      setFeedError(ex.message || 'Unable to load activity')
+    } finally {
+      setFeedLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadActivityFeed({ offset: 0 })
+  }, [token])
 
   async function applyStrikesNow() {
     setApplyingStrikes(true)
@@ -574,7 +600,7 @@ function HomeTab({ dash, token, me, reload, notify }) {
   const overdue = dash.attention_overdue || []
   const needsReview = dash.attention_needs_review || []
   const blocked = dash.attention_blocked || []
-  const activity = dash.recent_activity || []
+  const activity = feedItems.length ? feedItems : (dash.recent_activity || [])
   const ideas = (dash.ideas || []).filter(i => i.status !== 'APPROVED' && i.status !== 'REJECTED')
   const proofFeed = dash.proof_feed || []
 
@@ -681,7 +707,16 @@ function HomeTab({ dash, token, me, reload, notify }) {
       <div className="home-bottom-grid">
         {/* Recent Activity */}
         <div className="panel">
-          <SectionHead icon={<Activity size={16} />} title="Recent Activity" />
+          <SectionHead
+            icon={<Activity size={16} />}
+            title="Company Activity"
+            action={feedError && (
+              <button className="btn btn-ghost btn-sm" type="button" onClick={() => loadActivityFeed({ offset: 0 })}>
+                Retry
+              </button>
+            )}
+          />
+          {feedError && <p className="form-error">{feedError}</p>}
           {activity.length
             ? <div className="activity-feed">{activity.map(a => (
               <div key={a.id} className="activity-item">
@@ -690,12 +725,22 @@ function HomeTab({ dash, token, me, reload, notify }) {
                   <p className="activity-text">
                     <b>{a.actor_name || 'System'}</b> {a.body}
                   </p>
+                  {a.event_type && <span className="activity-type">{String(a.event_type).replace(/_/g, ' ')}</span>}
                   {a.task_title && <span className="activity-task">→ {a.task_title}</span>}
                   <span className="activity-time">{timeAgo(a.created_at)}</span>
                 </div>
               </div>
-            ))}</div>
-            : <Empty icon={<Activity size={20} />} text="No recent activity" />
+            ))}
+              {feedHasMore && (
+                <button className="btn btn-ghost btn-sm activity-load-more" type="button" disabled={feedLoading}
+                  onClick={() => loadActivityFeed({ offset: feedOffset, append: true })}>
+                  {feedLoading ? 'Loading...' : 'Load more'}
+                </button>
+              )}
+            </div>
+            : feedLoading
+              ? <div className="attention-empty">Loading activity...</div>
+              : <Empty icon={<Activity size={20} />} text="No recent activity" />
           }
         </div>
 
@@ -1168,6 +1213,7 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
   const [submittingComment, setSubmittingComment] = useState(false)
   const [comments, setComments] = useState(Array.isArray(detail?.comments) ? detail.comments : [])
   const [activity, setActivity] = useState([])
+  const [activityLoading, setActivityLoading] = useState(false)
   const [proofNote, setProofNote] = useState('')
   const [proofMinutes, setProofMinutes] = useState('')
   const [proofScreenshot, setProofScreenshot] = useState('')
@@ -1239,9 +1285,15 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
   // Load activity timeline
   useEffect(() => {
     if (!safeTask?.id) return
-    rpc('get_activity_timeline_rpc', { p_token: token, p_task_id: safeTask.id, p_limit: 30 })
-      .then(data => setActivity(arrayFromRpc(data, ['data', 'items', 'activity'])))
-      .catch(() => {})
+    setActivityLoading(true)
+    rpc('get_activity_timeline_rpc', { p_token: token, p_task_id: safeTask.id, p_limit: 50 })
+      .then(data => {
+        const events = arrayFromRpc(data, ['data', 'items', 'activity'])
+          .sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0))
+        setActivity(events)
+      })
+      .catch(() => setActivity([]))
+      .finally(() => setActivityLoading(false))
   }, [safeTask?.id, token])
 
   useEffect(() => {
@@ -1579,18 +1631,22 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
 
       {/* Activity Timeline */}
       <div className="detail-section">
-        <div className="detail-label"><Activity size={14} /> Activity ({activity.length})</div>
+        <div className="detail-label"><Activity size={14} /> Timeline ({activity.length})</div>
         <div className="timeline">
-          {activity.slice(0, 15).map(a => (
+          {activity.map(a => (
             <div key={a.id} className="timeline-item">
               <div className="timeline-dot" />
               <div>
                 <p className="timeline-text"><b>{a.actor_name || 'System'}</b> {a.body}</p>
-                <span className="timeline-time muted">{timeAgo(a.created_at)}</span>
+                <div className="timeline-meta">
+                  {a.event_type && <span className="timeline-type">{String(a.event_type).replace(/_/g, ' ')}</span>}
+                  <span className="timeline-time muted">{timeAgo(a.created_at)}</span>
+                </div>
               </div>
             </div>
           ))}
-          {activity.length === 0 && <p className="muted small">No activity yet.</p>}
+          {activityLoading && activity.length === 0 && <p className="muted small">Loading timeline...</p>}
+          {!activityLoading && activity.length === 0 && <p className="muted small">No activity yet.</p>}
         </div>
       </div>
 
