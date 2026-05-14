@@ -818,6 +818,14 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
   justify-content: center;
 }
 
+.task-retry-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 /* ── Task Sections ─────────────────────────────────────────────────────── */
 .task-section {
   display: flex;
@@ -1102,6 +1110,27 @@ textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
 .meta-val { font-size: 13px; font-weight: 600; }
 
 .detail-section { display: flex; flex-direction: column; gap: 10px; }
+
+.collaborator-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.collaborator-chip {
+  max-width: 100%;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 9px;
+  overflow-wrap: anywhere;
+}
 
 .detail-label {
   display: flex;

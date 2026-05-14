@@ -761,7 +761,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
     setTaskError('')
     const limit = activeView === 'history' ? 25 : 80
     try {
-      const data = await rpc('get_tasks_rpc', {
+      const data = await rpc('get_tasks_by_view_rpc', {
         p_token: token,
         p_view: activeView,
         p_limit: limit,
@@ -773,7 +773,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
       setHistoryOffset(offset + next.length)
       setTasks(current => append ? [...current, ...next] : next)
     } catch (ex) {
-      console.error('get_tasks_rpc failed:', ex)
+      console.error('get_tasks_by_view_rpc failed:', ex)
       setTaskError(ex?.message || 'Unable to load tasks. Please refresh or contact admin.')
       if (!append) setTasks([])
     } finally {
@@ -902,7 +902,10 @@ function TasksTab({ dash, token, me, reload, notify }) {
       </div>
 
       {taskError && (
-        <div className="notice notice-error">Unable to load tasks. Please refresh or contact admin.</div>
+        <div className="notice notice-error task-retry-notice">
+          <span>Unable to load tasks. Please refresh or contact admin.</span>
+          <button className="btn btn-sm" type="button" onClick={() => loadTasks({ offset: 0 })}>Retry</button>
+        </div>
       )}
 
       <div className="task-view-tabs" role="tablist" aria-label="Task columns">
@@ -1315,6 +1318,19 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
   const assignee = localDetail?.assigned_to_name || detail?.assigned_to_name || safeTask?.assigned_to || 'Unassigned'
   const assigner = localDetail?.assigned_by_name || detail?.assigned_by_name || safeTask?.assigned_by_name || 'Unknown'
   const statusLabel = String(safeTask.status || 'TODO').replace('_', ' ')
+  const collaborators = useMemo(() => {
+    const names = new Map()
+    ;[
+      [safeTask.assigned_to_id, assignee],
+      [safeTask.assigned_by_id, assigner],
+      ...comments.map(c => [c.user_id, c.user_name]),
+      ...proofs.map(p => [p.user_id, p.user_name])
+    ].forEach(([id, name]) => {
+      const label = String(name || '').trim()
+      if (label) names.set(id || label, label)
+    })
+    return Array.from(names.values()).slice(0, 8)
+  }, [safeTask.assigned_to_id, safeTask.assigned_by_id, assignee, assigner, comments, proofs])
 
   return (
     <>
@@ -1357,6 +1373,15 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
           <span className="meta-val">{safeTask.minutes || 0}m</span>
         </div>
       </div>
+
+      {collaborators.length > 0 && (
+        <div className="detail-section collaborators-section">
+          <div className="detail-label"><Users size={14} /> Collaborators</div>
+          <div className="collaborator-chips">
+            {collaborators.map(name => <span key={name} className="collaborator-chip">{name}</span>)}
+          </div>
+        </div>
+      )}
 
       {/* Status changer */}
       <div className="detail-section detail-status-section">
