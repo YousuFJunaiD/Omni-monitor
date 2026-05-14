@@ -795,6 +795,11 @@ function TasksTab({ dash, token, me, reload, notify }) {
   const [taskDetail, setTaskDetail] = useState(null)
   const [historyOffset, setHistoryOffset] = useState(0)
   const [hasMoreHistory, setHasMoreHistory] = useState(false)
+  const [templates, setTemplates] = useState([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [showTemplateModal, setShowTemplateModal] = useState(false)
+  const [editingTemplate, setEditingTemplate] = useState(null)
+  const [assigningTemplate, setAssigningTemplate] = useState(null)
 
   const safeDash = dash || emptyDash
   const safeMe = me || {}
@@ -808,6 +813,11 @@ function TasksTab({ dash, token, me, reload, notify }) {
   const isCEO = role === 'CEO'
   const selectedView = taskViews.find(v => v.id === activeView) || taskViews[0]
   const selectedViewCount = Number(taskCounts[activeView] || 0)
+  const assignableUsers = useMemo(() => {
+    return visibleUsers
+      .filter(u => canAssignToUser(safeMe, u))
+      .sort((a, b) => String(a.title || '').localeCompare(String(b.title || '')) || String(a.name || '').localeCompare(String(b.name || '')))
+  }, [visibleUsers, safeMe])
 
   // Track last login time for "new task" detection
   const lastLogin = useMemo(() => {
@@ -844,6 +854,20 @@ function TasksTab({ dash, token, me, reload, notify }) {
     }
   }, [token, activeView])
 
+  const loadTemplates = useCallback(async () => {
+    if (!token) return
+    setTemplatesLoading(true)
+    try {
+      const data = await rpc('get_task_templates_rpc', { p_token: token, p_include_archived: false, p_limit: 80 })
+      setTemplates(arrayFromRpc(data, ['templates', 'items', 'data']))
+    } catch (ex) {
+      console.warn('get_task_templates_rpc failed:', ex)
+      setTemplates([])
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }, [token])
+
   useEffect(() => {
     setTasks([])
     setHistoryOffset(0)
@@ -851,6 +875,10 @@ function TasksTab({ dash, token, me, reload, notify }) {
     setSelectedTask(null)
     loadTasks({ offset: 0 })
   }, [loadTasks])
+
+  useEffect(() => {
+    loadTemplates()
+  }, [loadTemplates])
 
   const visibleRoleTasks = safeTasks.filter(t => {
     if (isIntern) return t.assigned_to_id === safeMe.id
@@ -942,6 +970,25 @@ function TasksTab({ dash, token, me, reload, notify }) {
     finally { setDeletingId('') }
   }
 
+  async function createTemplateFromTask(task) {
+    if (!task?.id) return
+    try {
+      await rpc('create_template_from_task_rpc', { p_token: token, p_task_id: task.id, p_visibility: 'private' })
+      await loadTemplates()
+      notify('Template saved')
+    } catch (ex) { notify(ex.message, 'error') }
+  }
+
+  async function archiveTemplate(template) {
+    if (!template?.id) return
+    if (!window.confirm(`Archive "${template.title || 'this template'}"?`)) return
+    try {
+      await rpc('archive_task_template_rpc', { p_token: token, p_template_id: template.id, p_archived: true })
+      await loadTemplates()
+      notify('Template archived')
+    } catch (ex) { notify(ex.message, 'error') }
+  }
+
   function canManage(task) {
     return safeMe.role === 'CEO'
       || canManageInternForUser(safeMe, userById[task?.assigned_to_id] || { role: task?.assignee_role, title: task?.assignee_title, username: task?.assignee_username })
@@ -958,9 +1005,51 @@ function TasksTab({ dash, token, me, reload, notify }) {
           </p>
         </div>
         {canCreateTasks && (
-          <button className="btn btn-primary" onClick={() => setShowAssign(true)}>
-            <Plus size={16} /> New Task
-          </button>
+          <div className="header-actions">
+            <button className="btn" onClick={() => { setEditingTemplate(null); setShowTemplateModal(true) }}>
+              <ClipboardList size={16} /> New Template
+            </button>
+            <button className="btn btn-primary" onClick={() => setShowAssign(true)}>
+              <Plus size={16} /> New Task
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="templates-panel">
+        <div className="templates-panel-head">
+          <div>
+            <span className="task-section-label"><ClipboardList size={13} /> Templates</span>
+            <p className="muted small">Reusable task playbooks for repeated work and recurring assignments.</p>
+          </div>
+          {templatesLoading && <span className="muted small">Loading...</span>}
+        </div>
+        {templates.length ? (
+          <div className="template-grid">
+            {templates.slice(0, 8).map(template => (
+              <div key={template.id} className="template-card">
+                <div className="template-card-title">
+                  <b>{template.title}</b>
+                  <Badge variant={`badge-${priorityClass(template.default_priority)}`}>{template.default_priority}</Badge>
+                </div>
+                <p>{template.description || 'No description provided.'}</p>
+                <div className="template-meta">
+                  <span>{template.visibility}</span>
+                  {template.default_department && <span>{template.default_department}</span>}
+                  {Number(template.default_estimated_minutes || 0) > 0 && <span>{template.default_estimated_minutes}m</span>}
+                </div>
+                {canCreateTasks && (
+                  <div className="template-actions">
+                    <button className="btn btn-sm btn-primary" type="button" onClick={() => setAssigningTemplate(template)}>Use</button>
+                    <button className="btn btn-sm" type="button" onClick={() => { setEditingTemplate(template); setShowTemplateModal(true) }}>Edit</button>
+                    <button className="icon-btn icon-btn-sm" type="button" onClick={() => archiveTemplate(template)} aria-label="Archive template"><Trash2 size={14} /></button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="attention-empty">{templatesLoading ? 'Loading templates...' : 'No templates yet'}</div>
         )}
       </div>
 
@@ -1078,6 +1167,7 @@ function TasksTab({ dash, token, me, reload, notify }) {
               if (d) setTaskDetail(normalizeTaskForUi(objectFromRpc(d)))
             }}
             onProofSubmitted={reload}
+            onCreateTemplate={canCreateTasks ? () => createTemplateFromTask(selectedTask) : null}
             notify={notify}
           />
         )}
@@ -1094,6 +1184,37 @@ function TasksTab({ dash, token, me, reload, notify }) {
             setShowAssign(false)
             await loadTasks({ offset: 0 })
             notify('Task created')
+          }}
+          notify={notify}
+        />
+      )}
+
+      {showTemplateModal && canCreateTasks && (
+        <TemplateModal
+          token={token}
+          me={safeMe}
+          template={editingTemplate}
+          onClose={() => { setShowTemplateModal(false); setEditingTemplate(null) }}
+          onSaved={async () => {
+            setShowTemplateModal(false)
+            setEditingTemplate(null)
+            await loadTemplates()
+            notify(editingTemplate ? 'Template updated' : 'Template created')
+          }}
+          notify={notify}
+        />
+      )}
+
+      {assigningTemplate && canCreateTasks && (
+        <TemplateAssignModal
+          token={token}
+          template={assigningTemplate}
+          users={assignableUsers}
+          onClose={() => setAssigningTemplate(null)}
+          onAssigned={async (createdCount) => {
+            setAssigningTemplate(null)
+            await loadTasks({ offset: 0 })
+            notify(`Created ${createdCount || 0} task${createdCount === 1 ? '' : 's'} from template`)
           }}
           notify={notify}
         />
@@ -1203,7 +1324,7 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
   )
 }
 
-function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onDelete, onReload, onProofSubmitted, notify }) {
+function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onDelete, onReload, onProofSubmitted, onCreateTemplate, notify }) {
   const [localDetail, setLocalDetail] = useState(detail || null)
   const safeTask = normalizeTaskForUi(localDetail || detail || task)
   const safeMe = me || {}
@@ -1459,6 +1580,11 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
 
       <div className="detail-title" id="task-detail-title">{safeTask.title}</div>
       {safeTask.details && <p className="detail-desc muted">{safeTask.details}</p>}
+      {onCreateTemplate && (
+        <button className="btn btn-sm detail-template-action" type="button" onClick={onCreateTemplate}>
+          <ClipboardList size={14} /> Save as Template
+        </button>
+      )}
 
       <div className="detail-meta-row">
         <div className="meta-item">
@@ -1691,6 +1817,248 @@ function TaskDetailPanel({ task, detail, me, token, onClose, onStatusChange, onD
         </div>
       )}
     </>
+  )
+}
+
+// ─── Task Template Modals ───────────────────────────────────────────────────
+
+function TemplateModal({ token, me, template, onClose, onSaved, notify }) {
+  const isEditing = Boolean(template?.id)
+  const managerDepartment = userDepartment(me)
+  const [f, setF] = useState({
+    title: template?.title || '',
+    description: template?.description || '',
+    default_priority: template?.default_priority || 'MEDIUM',
+    default_department: template?.default_department || managerDepartment || '',
+    default_estimated_minutes: template?.default_estimated_minutes || '',
+    default_proof_requirement: template?.default_proof_requirement || '',
+    default_checklist: Array.isArray(template?.default_checklist) ? template.default_checklist.join('\n') : '',
+    visibility: template?.visibility || 'private'
+  })
+  const [saving, setSaving] = useState(false)
+
+  async function submit(e) {
+    e.preventDefault()
+    if (!f.title.trim()) return
+    setSaving(true)
+    try {
+      const checklist = f.default_checklist
+        .split('\n')
+        .map(item => item.trim())
+        .filter(Boolean)
+      await rpc('upsert_task_template_rpc', {
+        p_token: token,
+        p_template_id: template?.id || null,
+        p_title: f.title,
+        p_description: f.description,
+        p_default_priority: f.default_priority,
+        p_default_department: f.default_department,
+        p_default_estimated_minutes: Number(f.default_estimated_minutes || 0),
+        p_default_proof_requirement: f.default_proof_requirement,
+        p_default_checklist: checklist,
+        p_visibility: f.visibility
+      })
+      onSaved()
+    } catch (ex) { notify(ex.message, 'error') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>{isEditing ? 'Edit Template' : 'New Template'}</h2>
+          <button className="icon-btn icon-btn-sm" type="button" onClick={onClose}><X size={16} /></button>
+        </div>
+        <form onSubmit={submit} className="modal-body">
+          <div className="field">
+            <label>Template Title *</label>
+            <input className="input" required placeholder="Reusable task title"
+              value={f.title} onChange={e => setF({ ...f, title: e.target.value })} />
+          </div>
+          <div className="field">
+            <label>Description</label>
+            <textarea placeholder="Instructions, expected output, proof requirements..."
+              value={f.description} onChange={e => setF({ ...f, description: e.target.value })} />
+          </div>
+          <div className="modal-row">
+            <div className="field">
+              <label>Default Priority</label>
+              <select className="input" value={f.default_priority} onChange={e => setF({ ...f, default_priority: e.target.value })}>
+                <option value="LOW">LOW</option>
+                <option value="MEDIUM">MEDIUM</option>
+                <option value="HIGH">HIGH</option>
+                <option value="URGENT">URGENT</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Estimated Time</label>
+              <input className="input" type="number" min="0" placeholder="Minutes"
+                value={f.default_estimated_minutes} onChange={e => setF({ ...f, default_estimated_minutes: e.target.value })} />
+            </div>
+          </div>
+          <div className="modal-row">
+            <div className="field">
+              <label>Department</label>
+              <select className="input" value={f.default_department} onChange={e => setF({ ...f, default_department: e.target.value })}>
+                <option value="">None</option>
+                {(me?.role === 'CEO' || managerDepartment === 'frontend') && <option value="frontend">Frontend</option>}
+                {(me?.role === 'CEO' || managerDepartment === 'backend') && <option value="backend">Backend</option>}
+              </select>
+            </div>
+            <div className="field">
+              <label>Visibility</label>
+              <select className="input" value={f.visibility} onChange={e => setF({ ...f, visibility: e.target.value })}>
+                <option value="private">Private</option>
+                <option value="department">Department</option>
+                {me?.role === 'CEO' && <option value="company">Company</option>}
+              </select>
+            </div>
+          </div>
+          <div className="field">
+            <label>Proof Requirement</label>
+            <input className="input" placeholder="Screenshot, notes, link, demo, etc."
+              value={f.default_proof_requirement} onChange={e => setF({ ...f, default_proof_requirement: e.target.value })} />
+          </div>
+          <div className="field">
+            <label>Checklist</label>
+            <textarea placeholder="One checklist item per line"
+              value={f.default_checklist} onChange={e => setF({ ...f, default_checklist: e.target.value })} />
+          </div>
+          <button className="btn btn-primary btn-full" type="submit" disabled={saving}>
+            {saving ? 'Saving...' : isEditing ? 'Save Template' : 'Create Template'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function TemplateAssignModal({ token, template, users, onClose, onAssigned, notify }) {
+  const [f, setF] = useState({
+    assigned_to: [],
+    due_date: '',
+    recurrence: 'ONE_TIME',
+    recurrence_days: [],
+    start_date: '',
+    end_date: '',
+    deadline_time: ''
+  })
+  const [saving, setSaving] = useState(false)
+  const weekDays = [
+    ['Mon', 1], ['Tue', 2], ['Wed', 3], ['Thu', 4],
+    ['Fri', 5], ['Sat', 6], ['Sun', 7]
+  ]
+
+  function toggleUser(userId) {
+    setF(current => {
+      const assigned = current.assigned_to.includes(userId)
+      return { ...current, assigned_to: assigned ? current.assigned_to.filter(id => id !== userId) : [...current.assigned_to, userId] }
+    })
+  }
+
+  function toggleWeekDay(day) {
+    setF(current => {
+      const hasDay = current.recurrence_days.includes(day)
+      return { ...current, recurrence_days: hasDay ? current.recurrence_days.filter(d => d !== day) : [...current.recurrence_days, day].sort() }
+    })
+  }
+
+  async function submit(e) {
+    e.preventDefault()
+    if (!f.assigned_to.length) return
+    setSaving(true)
+    try {
+      const data = await rpc('assign_task_template_rpc', {
+        p_token: token,
+        p_template_id: template.id,
+        p_assigned_to: f.assigned_to,
+        p_due_date: f.due_date || null,
+        p_recurrence_type: f.recurrence,
+        p_recurrence_days: f.recurrence === 'WEEKLY_DAYS' ? f.recurrence_days : [],
+        p_start_date: f.start_date || f.due_date || new Date().toISOString().slice(0, 10),
+        p_end_date: f.end_date || null,
+        p_deadline_time: f.deadline_time || null
+      })
+      onAssigned(data.created_count || 0)
+    } catch (ex) { notify(ex.message, 'error') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Use Template</h2>
+          <button className="icon-btn icon-btn-sm" type="button" onClick={onClose}><X size={16} /></button>
+        </div>
+        <form onSubmit={submit} className="modal-body">
+          <div className="template-use-summary">
+            <b>{template.title}</b>
+            <span>{template.description || 'No description provided.'}</span>
+          </div>
+          <div className="field">
+            <label>Assign to *</label>
+            <div className="assignee-check-grid">
+              {users.map(user => (
+                <label key={user.id} className="weekday-check">
+                  <input type="checkbox" checked={f.assigned_to.includes(user.id)} onChange={() => toggleUser(user.id)} />
+                  <span>{user.name}</span>
+                </label>
+              ))}
+            </div>
+            {!users.length && <p className="muted small">No eligible assignees available for your department.</p>}
+          </div>
+          <div className="field">
+            <label>Schedule</label>
+            <select className="input" value={f.recurrence} onChange={e => setF({ ...f, recurrence: e.target.value })}>
+              <option value="ONE_TIME">One-time task</option>
+              <option value="DAILY">Daily until stopped</option>
+              <option value="WEEKLY_DAYS">Weekly until stopped</option>
+            </select>
+          </div>
+          {f.recurrence === 'ONE_TIME' ? (
+            <div className="field">
+              <label>Due date</label>
+              <input className="input" type="date" value={f.due_date} onChange={e => setF({ ...f, due_date: e.target.value })} />
+            </div>
+          ) : (
+            <>
+              <div className="modal-row">
+                <div className="field">
+                  <label>Start date *</label>
+                  <input className="input" type="date" required value={f.start_date} onChange={e => setF({ ...f, start_date: e.target.value })} />
+                </div>
+                <div className="field">
+                  <label>Optional end date</label>
+                  <input className="input" type="date" value={f.end_date} onChange={e => setF({ ...f, end_date: e.target.value })} />
+                </div>
+              </div>
+              <div className="field">
+                <label>Deadline time</label>
+                <input className="input" type="time" value={f.deadline_time} onChange={e => setF({ ...f, deadline_time: e.target.value })} />
+              </div>
+            </>
+          )}
+          {f.recurrence === 'WEEKLY_DAYS' && (
+            <div className="field">
+              <label>Days</label>
+              <div className="weekday-grid compact">
+                {weekDays.map(([label, value]) => (
+                  <label key={value} className="weekday-check">
+                    <input type="checkbox" checked={f.recurrence_days.includes(value)} onChange={() => toggleWeekDay(value)} />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <button className="btn btn-primary btn-full" type="submit" disabled={saving || !users.length}>
+            {saving ? 'Assigning...' : 'Assign Template'}
+          </button>
+        </form>
+      </div>
+    </div>
   )
 }
 
