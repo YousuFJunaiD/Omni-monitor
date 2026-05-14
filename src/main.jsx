@@ -191,6 +191,8 @@ function normalizeTaskForUi(task) {
     assignee_role: safe.assignee_role || safe.assigned_to_role || safe.assignee?.role || '',
     assigned_by_id: safe.assigned_by_id || safe.creator?.id || '',
     assigned_by_name: safe.assigned_by_name || safe.assigned_by || safe.creator?.name || '',
+    proof_count: Number(safe.proof_count ?? (Array.isArray(safe.proofs) ? safe.proofs.length : 0)) || 0,
+    minutes: Number(safe.minutes ?? safe.minutes_logged ?? 0) || 0,
     comments: Array.isArray(safe.comments) ? safe.comments : [],
     proofs: Array.isArray(safe.proofs) ? safe.proofs : []
   }
@@ -1094,9 +1096,9 @@ function TaskRow({ task, userById, onOpen, onSetStatus, onDelete, canManage, isD
             </span>
           )}
 
-          {Array.isArray(safeTask.proofs) && safeTask.proofs.length > 0 && (
+          {Number(safeTask.proof_count || safeTask.proofs?.length || 0) > 0 && (
             <span className="task-row-proof">
-              <Camera size={11} /> {safeTask.proofs.length} proof{safeTask.proofs.length === 1 ? '' : 's'}
+              <Camera size={11} /> {Number(safeTask.proof_count || safeTask.proofs?.length || 0)} proof{Number(safeTask.proof_count || safeTask.proofs?.length || 0) === 1 ? '' : 's'}
             </span>
           )}
 
