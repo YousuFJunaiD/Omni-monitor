@@ -104,38 +104,38 @@ create index if not exists idx_ai_report_runs_template on ai_report_runs(templat
 
 -- Helper: can view AI insights
 create or replace function can_view_ai_insights(p_viewer app_users, p_insight ai_insights)
-returns boolean language sql stable as $$
-  case
-    when p_viewer.id is null or p_insight.id is null then false
-    when p_viewer.role = 'CEO' then true
-    when p_insight.target_user_id is not null and p_insight.target_user_id = p_viewer.id then true
-    when p_insight.target_department <> '' and user_department(p_viewer) <> '' and user_department(p_viewer) = p_insight.target_department and p_viewer.role in ('BOARD','FOUNDER') then true
-    else false
-  end
+returns boolean language plpgsql stable as $$
+begin
+  if p_viewer.id is null or p_insight.id is null then return false; end if;
+  if p_viewer.role = 'CEO' then return true; end if;
+  if p_insight.target_user_id is not null and p_insight.target_user_id = p_viewer.id then return true; end if;
+  if p_insight.target_department <> '' and user_department(p_viewer) <> '' and user_department(p_viewer) = p_insight.target_department and p_viewer.role in ('BOARD','FOUNDER') then return true; end if;
+  return false;
+end;
 $$;
 
 -- Helper: can view AI reports
 create or replace function can_view_ai_report(p_viewer app_users, p_run ai_report_runs)
-returns boolean language sql stable as $$
-  case
-    when p_viewer.id is null or p_run.id is null then false
-    when p_viewer.role = 'CEO' then true
-    when p_run.target_user_id is not null and p_run.target_user_id = p_viewer.id then true
-    when p_run.target_department <> '' and user_department(p_viewer) <> '' and user_department(p_viewer) = p_run.target_department and p_viewer.role in ('BOARD','FOUNDER') then true
-    else false
-  end
+returns boolean language plpgsql stable as $$
+begin
+  if p_viewer.id is null or p_run.id is null then return false; end if;
+  if p_viewer.role = 'CEO' then return true; end if;
+  if p_run.target_user_id is not null and p_run.target_user_id = p_viewer.id then return true; end if;
+  if p_run.target_department <> '' and user_department(p_viewer) <> '' and user_department(p_viewer) = p_run.target_department and p_viewer.role in ('BOARD','FOUNDER') then return true; end if;
+  return false;
+end;
 $$;
 
 -- Helper: minimum role for AI reports
 create or replace function can_generate_ai_report(p_user app_users, p_template ai_report_templates)
-returns boolean language sql stable as $$
-  case
-    when p_user.id is null or p_template.id is null then false
-    when p_template.min_role = 'CEO' and p_user.role <> 'CEO' then false
-    when p_template.min_role = 'FOUNDER' and p_user.role not in ('CEO','FOUNDER') then false
-    when p_template.min_role = 'BOARD' and p_user.role not in ('CEO','BOARD','FOUNDER') then false
-    else true
-  end
+returns boolean language plpgsql stable as $$
+begin
+  if p_user.id is null or p_template.id is null then return false; end if;
+  if p_template.min_role = 'CEO' and p_user.role <> 'CEO' then return false; end if;
+  if p_template.min_role = 'FOUNDER' and p_user.role not in ('CEO','FOUNDER') then return false; end if;
+  if p_template.min_role = 'BOARD' and p_user.role not in ('CEO','BOARD','FOUNDER') then return false; end if;
+  return true;
+end;
 $$;
 
 -- Internal: Generate rule-based insights (called by RPC, no AI needed)
