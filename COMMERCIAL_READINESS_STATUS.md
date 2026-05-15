@@ -1,23 +1,59 @@
 # Commercial Readiness Status — Omni Monitor
 
-**Date:** 2026-05-14 (end of overnight sprint).
+**Date:** 2026-05-15.
 **Audience:** Project owner. The single document that summarizes "where are we and what's next".
+**Product positioning:** Omni Monitor is a **single-client deployable internal AI management system**. The product ships with Omnimate as the default configuration so the existing Omnimate deployment keeps working unchanged. New clients are configured via `VITE_CLIENT_*` env vars and a Supabase project per deployment.
 
 ---
 
 ## TL;DR
 
-Omni Monitor is **demo-ready today** and **paid-pilot-ready within 2 weeks of focused work**. It is not SaaS-ready (multi-tenant). All 12 phases through Phase 12 (this sprint) have shipped and build clean. The remaining gap is operational: a handful of security tightenings, real-device QA, and a few audit-log writers. The big work (multi-tenancy + billing) is fully planned with documented risk.
+Omni Monitor is **internal-ready and demo-ready today**. It is **client-pilot-ready within 1 week** of focused work (a handful of security tightenings + a real-device mobile QA pass). It is **not SaaS multi-tenant** and **not billing-ready** — both are deferred planning items with full documentation.
 
-Readiness levels:
+Readiness matrix:
 
-| Dimension | Today | After day-1 next-steps | After 4-week sprint |
-| --- | --- | --- | --- |
-| Internal use (Omnimate itself) | ✅ Ready | ✅ Ready | ✅ Ready |
-| Sales demo to a prospect | ✅ Ready | ✅ Ready | ✅ Ready |
-| Single-customer paid pilot | 🟡 Close | ✅ Ready | ✅ Ready |
-| Multi-customer SaaS | ❌ Not ready | ❌ Not ready | 🟡 Foundations |
-| SOC 2 / GDPR compliance | ❌ Not ready | 🟡 Audit-ready | ✅ Ready |
+| Dimension | Status | Path to next level |
+| --- | --- | --- |
+| Internal use (Omnimate itself) | ✅ Internal-ready | n/a — already running. |
+| Sales demo to a prospect | ✅ Demo-ready | n/a — `CLIENT_DEMO_SCRIPT.md` is the 25-min playbook. |
+| Single-client paid pilot | 🟡 Client-pilot-ready in ~1 week | Close §4.3 dashboard scoping + AI rate-limit + mobile pass. |
+| Single-client production deployment | 🟡 Same as pilot | Add Sentry + uptime monitor + DPA. |
+| Multi-customer SaaS | ❌ Not SaaS multi-tenant yet | `MULTI_ORG_IMPLEMENTATION_PLAN.md` — ~30 engineering days. |
+| Billing / subscriptions | ❌ Not billing-ready | `BILLING_AND_LIMITS_PLAN.md` — ~8 days after multi-tenant lands. |
+| SOC 2 / GDPR compliance | ❌ Not audit-ready | Schedule after pilot wins; see audit doc. |
+
+---
+
+## Client deployability — what an Omnimate sales rep can promise today
+
+Omni Monitor can be deployed for a new client by:
+
+1. Filling in `CLIENT_INTAKE_FORM.md` with the client.
+2. Provisioning a fresh Supabase project, applying all 27 migrations.
+3. Pointing a Vercel deployment at the repo with the client's `VITE_CLIENT_*` env vars set.
+4. Walking through `INDUSTRY_READY_QA_CHECKLIST.md` end to end.
+
+Total time: ~3 hours of engineering work after the intake form is signed.
+
+Configurable per client without code changes (`src/config/clientConfig.js` + env vars):
+- Company name, product name, logo mark, tagline, app heading.
+- Industry / workspace positioning label.
+- AI assistant name (e.g., "Operations Assistant", "Sales Coach", "Care Operations Assistant").
+- Role display labels (DB enum stays CEO/FOUNDER/BOARD/INTERN; UI labels are configurable).
+- Department display labels (DB keys stay frontend/backend; UI labels are configurable).
+- Support email + URL.
+- Login description, empty-dashboard hint, finance placeholder text.
+- Demo banner text.
+- AI provider (OpenAI / hosted Ollama / mock) via separate AI env vars.
+
+Requires a code or SQL change (engineering, not config):
+- Adding a new department beyond frontend/backend.
+- Adding a new role beyond CEO/FOUNDER/BOARD/INTERN.
+- Custom workflow rules (e.g., two-person review approval).
+- Native integrations (Slack, Teams, Salesforce, etc.).
+- Custom email digest or SSO.
+
+See `INDUSTRY_DEPLOYMENT_PLAYBOOK.md` for industry-specific positioning (schools, agencies, startups, hospitals, real estate, sales teams, IT ops).
 
 ---
 
