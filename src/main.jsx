@@ -34,33 +34,14 @@ import {
 import {supabase, supabaseReady} from './supabase'
 import './styles.css'
 
-// ─── Phase 11: Brand placeholders ────────────────────────────────────────────
-// Single source of truth for client-facing strings. Replace these to white-label
-// the app for a new client. Phase 11 deliberately stops here — no organizations
-// table, no per-tenant override layer, no DB-backed branding. See SAAS_READINESS_ROADMAP.md.
-const BRAND_CONFIG = {
-  companyName: 'Omnimate',
-  productName: 'Omnimate Monitor',
-  logoMark: 'OM',
-  tagline: 'Execution control',
-  appHeading: 'Execution OS',
-  aiAssistantName: 'AI Executive',
-  defaultDepartments: {
-    frontend: 'Frontend',
-    backend: 'Backend'
-  },
-  financePlaceholderText:
-    'Financial and project tracking is reserved for a future phase. Connect your billing or PM system to populate this card.',
-  workspaceLabel: 'Operations',
-  // Phase 12 (commercial readiness): additional placeholders for white-label.
-  supportEmail: 'support@omnimate.example',
-  supportUrl: '',
-  demoModeLabel: 'Demo workspace',
-  demoModeBannerText: '',  // set non-empty to display a top-of-app demo banner
-  loginDescription: 'Private workspace for the team.',
-  emptyDashboardHint: 'Create a task to give the team a clear owner, outcome, and next step.',
-  copyrightOwner: 'Omnimate'
-}
+// ─── Phase 13: Client config (single source of truth for branding) ──────────
+// Branding moved to src/config/clientConfig.js. That file defaults to Omnimate
+// values so the existing deployment is unchanged. New clients override via
+// VITE_CLIENT_* environment variables — no code change required.
+//
+// BRAND_CONFIG is the legacy name; all in-file references keep working because
+// the field names are identical.
+import BRAND_CONFIG from './config/clientConfig.js'
 
 const TOKEN_KEY = 'omnimate_session_token'
 const LEGACY_TOKEN_KEY = 'omnimart_session_token'
