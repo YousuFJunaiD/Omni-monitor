@@ -3792,14 +3792,20 @@ function MoreTab({ dash, token, me, reload, notify, goToTask, goToTab }) {
   // dashboard payload + the just-loaded metrics report. The Ollama prompt
   // asks for a structured JSON response with named sections; if Ollama
   // returns plain text we keep it as `rawText` and still produce a PDF.
-  function buildAiReportContext(period, currentReport) {
+  // Phase 15: optional richRankings (from get_rankings_rpc) carries
+  // per-user component fields (submissions, overdue, etc.) the PDF uses
+  // for the Score Breakdown table.
+  function buildAiReportContext(period, currentReport, richRankings) {
     const visibleUsers = Array.isArray(dash?.visible_users) ? dash.visible_users : []
     const overdue = dash?.attention_overdue || []
     const needsReview = dash?.attention_needs_review || []
     const blocked = dash?.attention_blocked || []
     const proofFeed = dash?.proof_feed || []
-    const founderRank = dash?.founder_ranking || []
-    const internRank = dash?.intern_ranking || []
+    // Prefer richRankings (full breakdown fields) when available; fall back
+    // to the lighter dashboard rankings.
+    const founderRank = (richRankings?.founder_ranking) || dash?.founder_ranking || []
+    const internRank = (richRankings?.intern_ranking) || dash?.intern_ranking || []
+    const departmentRankings = richRankings?.department_rankings || []
     const ideas = dash?.ideas || []
 
     // Inactive proxy: ranking rows with done=0 AND submissions=0 AND total>0.
@@ -3843,7 +3849,20 @@ function MoreTab({ dash, token, me, reload, notify, goToTask, goToTab }) {
       // Detail
       rankings: {
         founders: founderRank.slice(0, 10),
-        interns: internRank.slice(0, 10)
+        interns: internRank.slice(0, 10),
+        departments: departmentRankings
+      },
+      // Phase 15: strike summary computed up-front so the AI prompt + PDF can
+      // both reference it without re-deriving from the rankings array.
+      strike_summary: {
+        total_strikes: visibleUsers.reduce((s, u) => s + Number(u.strikes || 0), 0),
+        users_with_strikes: visibleUsers.filter(u => Number(u.strikes || 0) > 0).length,
+        strike_penalty_per_strike: 70,
+        top_offenders: [...founderRank, ...internRank]
+          .filter(r => Number(r.strikes || 0) > 0)
+          .sort((a, b) => Number(b.strikes || 0) - Number(a.strikes || 0))
+          .slice(0, 5)
+          .map(r => ({ name: r.name, role: r.role, strikes: Number(r.strikes || 0), penalty: Number(r.strikes || 0) * 70 }))
       },
       best_founder: currentReport?.best_founder || (founderRank[0] || null),
       best_intern:  currentReport?.best_intern  || (internRank[0]  || null),
@@ -3906,7 +3925,20 @@ function MoreTab({ dash, token, me, reload, notify, goToTask, goToTab }) {
         }
       }
 
-      const context = buildAiReportContext(period, currentReport)
+      // Phase 15: also pull the rich rankings (done/submissions/overdue/strikes
+      // per user). The dashboard's founder_ranking/intern_ranking only carry
+      // {done,total,strikes,score} — not enough for a real score breakdown.
+      // get_rankings_rpc returns the full per-user component fields the
+      // PDF needs to render an honest breakdown.
+      let richRankings = null
+      try {
+        richRankings = await rpc('get_rankings_rpc', { p_token: token })
+      } catch {
+        // Non-fatal — PDF falls back to the dashboard's lighter rankings.
+        richRankings = null
+      }
+
+      const context = buildAiReportContext(period, currentReport, richRankings)
       const ai = await requestAiAnalysis(context).catch(() => ({ ok: false }))
       const rawText = ai?.ok && typeof ai.summary === 'string' ? ai.summary.trim() : ''
       const sections = rawText ? parseAiSections(rawText) : null
