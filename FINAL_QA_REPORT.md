@@ -37,16 +37,19 @@ None. The audit did not surface any defect serious enough to require a code fix 
 
 ---
 
-## 3. Issues already known and tracked (do not re-fix tonight)
+## 3. Issues already known and tracked
 
-These are explicitly out of scope for this sprint per project rules ("Do not rewrite unrelated features"). Each has been documented in a prior phase report.
+These are documented gaps. The first three have been partially closed by this sprint's `round22` and `round23` migrations.
 
-1. **3 audit-log writers missing** (Phase 9 known gap):
-   - `upsert_task_template_rpc` (round19) — no `audit_logs` insert.
-   - `archive_task_template_rpc` (round19) — no `audit_logs` insert.
-   - `set_recurring_task_active_rpc` (round19) — no `audit_logs` insert.
-   - `generate_ai_report_rpc` (round20) — no `audit_logs` insert.
-   Fix stanzas are in the Phase 9 report. Apply as a focused future migration when those phases are revisited.
+1. **Audit-log writers — partially shipped via `round23-audit-log-completeness.sql`:**
+   - ✅ `archive_task_template_rpc` now writes `ARCHIVE_TEMPLATE` / `UNARCHIVE_TEMPLATE`.
+   - ✅ `set_recurring_task_active_rpc` now writes `PAUSE_RECURRING` / `RESUME_RECURRING`.
+   - ❌ `upsert_task_template_rpc` (round19, 376 lines) — STILL MISSING. Too large to safely redefine overnight. Deferred to a daylight session.
+   - ❌ `generate_ai_report_rpc` (round20, sensitive file with corruption history) — STILL MISSING. Deferred.
+   Stanzas for the remaining two are in `SECURITY_RBAC_AUDIT.md §4.2`.
+
+1a. **Admin RPC anon-grant hardening — shipped via `round22-security-audit-hardening.sql`:**
+   - Revoked anon execute permission on `get_audit_logs_rpc`, `get_system_health_rpc`, `apply_strikes_rpc`, `moderate_strike_rpc`, `generate_due_tasks_rpc`. The inner `me.role <> 'CEO'` check remains the authoritative gate; this migration adds defense in depth at the Postgres permission layer.
 
 2. **`tasks` table has no `updated_at`** (Phase 9 known limitation):
    - "Stuck task" detection in `get_system_health_rpc` works around this by using `max(activity_events.created_at)` per task. Tasks created before round18 went live could appear stuck if they've never received an activity event. Mitigation: spot-check the stuck lists against reality before acting.

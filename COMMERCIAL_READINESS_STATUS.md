@@ -44,15 +44,17 @@ Production build status as of end-of-sprint: **PASS**. 1771 modules transformed.
 
 ## What is still missing (ordered by impact)
 
-### Blocking for paid pilot (must close in next 2 weeks)
+### Blocking for paid pilot
 
-1. **Security tightening migration** (`SECURITY_RBAC_AUDIT.md` §3). Revoke `anon` grants on admin RPCs. Single migration. ~30 minutes to apply + verify.
-2. **Server-side dept scoping on `get_dashboard` / `get_rankings_rpc`** (`SECURITY_RBAC_AUDIT.md` §4.1). Founder sees full company arrays today; UI filters but raw response leaks names. ~1 day.
-3. **Length cap + rate limit on `/api/ai-analysis`** (`SECURITY_RBAC_AUDIT.md` §2.4). Defense against AI-cost abuse. ~half day.
-4. **Real-device mobile QA** at 320 / 375 / 414 / 768 px breakpoints. Cannot be done from a desktop sandbox. ~half day.
-5. **Audit-log writers for 4 missing actions** (templates create/edit/archive, recurring pause/resume, AI report generated). ~2 hours. Stanzas in Phase 9 report.
+Status as of the second commercial-readiness sprint:
 
-Total: ~3 engineering days. Done in one focused week.
+1. ✅ **Security tightening migration shipped** — `supabase/round22-security-audit-hardening.sql`. Revokes anon grants on 5 admin RPCs. Apply with `supabase db push` or paste into the dashboard SQL editor.
+2. ⏳ **Server-side dept scoping on `get_dashboard` / `get_rankings_rpc`** (`SECURITY_RBAC_AUDIT.md §4.3`). DEFERRED — risk assessed: `get_dashboard` has been redefined 10 times across migration files, latest body up to 215 lines, 5 front-end consumers depend on the response shape. Doing this overnight without browser verification could break every dashboard. ~1 daylight day with staging QA.
+3. ⏳ **Length cap + rate limit on `/api/ai-analysis`** (`SECURITY_RBAC_AUDIT.md §2.4`). ~half day. Not started this sprint.
+4. ⏳ **Real-device mobile QA** at 320 / 375 / 414 / 768 px breakpoints. Cannot be done from a desktop sandbox. ~half day with a phone in hand.
+5. ✅ **Audit-log writers — safe subset shipped** — `supabase/round23-audit-log-completeness.sql` covers `archive_task_template_rpc` and `set_recurring_task_active_rpc`. Two large functions (`upsert_task_template_rpc`, `generate_ai_report_rpc`) still gapped; deferred to daylight per the risk rule.
+
+Total remaining: ~2 engineering days plus the mobile pass.
 
 ### Important for paid pilot (helpful, not blocking)
 
@@ -201,11 +203,16 @@ Listed in priority order. None of this can be automated from the build sandbox.
 
 ---
 
-## Bottom line
+## Bottom line (updated post-sprint #2)
 
-The app is in good shape. The remaining work is a short list of well-scoped hardening tasks, not a rewrite. The architecture is sound enough to support paid pilot with two weeks of focused work and SaaS with two months. Every gap is documented, every risk is ranked, every recommendation has concrete code or SQL attached.
+The app is in good shape. Two new migrations close two of the documented security gaps. The remaining work is a short list of well-scoped hardening tasks, not a rewrite. The architecture is sound enough to support paid pilot with ~1 week of focused work and SaaS with two months. Every gap is documented, every risk is ranked, every recommendation has concrete code or SQL attached.
 
 The biggest risk to commercial success is now operational — running it for real customers — not technical.
+
+**New since the first sprint:**
+- `supabase/round22-security-audit-hardening.sql` (admin RPC anon-revoke).
+- `supabase/round23-audit-log-completeness.sql` (templates archive + recurring pause/resume audit-log writers).
+- `FINAL_QA_CHECKLIST.md` — on-screen verification companion to `FINAL_QA_REPORT.md`.
 
 ---
 
