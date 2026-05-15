@@ -1669,11 +1669,21 @@ function InternHomeView({ dash, token, me, reload, notify, aiMode = 'checking' }
 // ─── TASKS TAB ───────────────────────────────────────────────────────────────
 
 const LAST_LOGIN_KEY = 'omnimate_last_login'
+// Phase 16: simplified Task tab views. Each view has a strict definition
+// enforced by get_tasks_by_view_rpc (round27):
+//   today    — due_date = current_date AND not done/review/history
+//   previous — due_date < current_date AND not done/history  (past, not closed)
+//   upcoming — due_date > current_date AND not done/history  (future)
+//   overdue  — strict subset of previous: TODO/IN_PROGRESS/BLOCKED only
+//   review   — submitted/under review/resubmitted/changes requested
+//   history  — done/approved/rejected
 const taskViews = [
-  { id: 'today', label: "Today's Tasks", icon: Clock, emptyTitle: 'No tasks for today', emptyText: 'Active work due today or coming up will appear here.' },
-  { id: 'overdue', label: 'Overdue Tasks', icon: AlertCircle, emptyTitle: 'No overdue tasks', emptyText: 'Nothing is currently past due.' },
-  { id: 'review', label: 'Tasks Under Review', icon: Zap, emptyTitle: 'No tasks under review', emptyText: 'Submitted tasks and proof review items will appear here.' },
-  { id: 'history', label: 'Task History', icon: CheckCircle, emptyTitle: 'No completed history', emptyText: 'Completed tasks will collect here.' }
+  { id: 'today',    label: 'Today',       icon: Clock,        emptyTitle: 'No tasks for today',     emptyText: 'Tasks due today will appear here. Nothing is scheduled right now.' },
+  { id: 'previous', label: 'Previous',    icon: CalendarDays, emptyTitle: 'No previous tasks',      emptyText: 'Past-due unfinished tasks will appear here. The backlog is clear.' },
+  { id: 'upcoming', label: 'Upcoming',    icon: CalendarDays, emptyTitle: 'No upcoming tasks',      emptyText: 'Future tasks will appear here.' },
+  { id: 'overdue',  label: 'Overdue',     icon: AlertCircle,  emptyTitle: 'No overdue tasks',       emptyText: 'Nothing is stuck past its deadline.' },
+  { id: 'review',   label: 'Under Review',icon: Zap,          emptyTitle: 'No tasks under review',  emptyText: 'Submitted tasks waiting for a reviewer will appear here.' },
+  { id: 'history',  label: 'History',     icon: CheckCircle,  emptyTitle: 'No completed history',   emptyText: 'Approved, completed, and rejected tasks will collect here.' }
 ]
 
 function TasksTab({ dash, token, me, reload, notify, pendingTaskId = null, clearPendingTaskId }) {
@@ -2024,14 +2034,8 @@ function TasksTab({ dash, token, me, reload, notify, pendingTaskId = null, clear
         })}
       </div>
 
-      <div className="task-summary-strip">
-        {taskViews.map(view => (
-          <div key={view.id} className={`task-summary-item ${activeView === view.id ? 'active' : ''}`}>
-            <span>{view.label}</span>
-            <b>{Number(taskCounts[view.id] || 0)}</b>
-          </div>
-        ))}
-      </div>
+      {/* Phase 16: dropped the duplicate task-summary-strip — counts already
+          appear on each view tab above. Less duplication, less clutter. */}
 
       <details className="task-filter-shell" open>
         <summary>
@@ -2055,7 +2059,9 @@ function TasksTab({ dash, token, me, reload, notify, pendingTaskId = null, clear
               {taskFilterUsers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
           )}
-          <input className="input task-filter-select" type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} />
+          {/* Phase 16: removed the date-picker filter. The view tabs (Today /
+              Previous / Upcoming) now express what users were trying to filter
+              by date, so the picker was redundant and added clutter. */}
         </div>
       </details>
 
@@ -2089,7 +2095,7 @@ function TasksTab({ dash, token, me, reload, notify, pendingTaskId = null, clear
             <div className="tasks-empty">
               <CheckCircle size={32} className="tasks-empty-icon" />
               <b>{selectedView.emptyTitle}</b>
-              <p>{q || statusFilter !== 'ALL' || userFilter !== 'ALL' || dateFilter ? 'Try adjusting the filters for this column.' : selectedView.emptyText}</p>
+              <p>{q || statusFilter !== 'ALL' || userFilter !== 'ALL' ? 'Try adjusting the filters for this column.' : selectedView.emptyText}</p>
             </div>
           )}
           {tasksLoading && <div className="loading" style={{ padding: '20px' }}>Loading tasks...</div>}

@@ -323,9 +323,14 @@ export function generateMetricsReportPdf(report, opts = {}) {
 
 // ── Public: AI-enhanced report PDF (Weekly AI / Monthly AI) ─────────────────
 
-// AI sections rendered in this order, with this display label.
+// Phase 16: AI sections rendered in strike-first priority order.
+// Discipline first, then delivered work, then workload context, THEN score —
+// matching the project rule that score is the least important of the four.
 const AI_SECTIONS = [
   ['executive_summary',         'Executive Summary'],
+  ['strike_discipline_summary', 'Strike & Discipline Summary'],
+  ['task_completion_summary',   'Task Completion Summary'],
+  ['assigned_workload_summary', 'Assigned Workload Summary'],
   ['operational_health',        'Operational Health'],
   ['productivity_analysis',     'Productivity Analysis'],
   ['top_performers',            'Top Performers'],
@@ -333,7 +338,6 @@ const AI_SECTIONS = [
   ['overdue_risks',             'Overdue Risk'],
   ['review_bottlenecks',        'Review Bottlenecks'],
   ['proof_quality_summary',     'Proof Submission Quality'],
-  ['strike_discipline_summary', 'Strike & Discipline Summary'],
   ['department_summary',        'Department-wise Summary'],
   ['recommended_actions',       'Recommended Actions'],
   ['next_week_priorities',      'Next Week Priorities']
@@ -477,11 +481,12 @@ export function generateAiReportPdf(payload, opts = {}) {
     y = doc.lastAutoTable.finalY
   }
 
-  drawBreakdownTable(founders, 'Founder score breakdown')
-  drawBreakdownTable(interns, 'Intern score breakdown')
+  // Phase 16: post-narrative block ordering matches the project's analysis
+  // priority — strikes/discipline first, then delivered work, then workload,
+  // THEN scores. Score breakdown tables are deliberately the LAST per-user
+  // detail block before the page chrome.
 
-  // Strike & Discipline Summary — dedicated section. Always rendered so the
-  // report makes the policy obvious even when no strikes are currently active.
+  // 1) Strike & Discipline Summary — most important. Always rendered.
   const allRank = [...founders, ...interns]
   const offenders = allRank
     .map(r => ({ ...r, strikes: Number(r?.strikes || 0) }))
@@ -494,7 +499,6 @@ export function generateAiReportPdf(payload, opts = {}) {
   y = ensureRoom(doc, y, 200)
   y = drawHeading(doc, 'Strike & Discipline Summary', y + 24)
 
-  // Policy callout
   setText(doc, COLOR_DANGER)
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
@@ -544,6 +548,65 @@ export function generateAiReportPdf(payload, opts = {}) {
       { color: COLOR_TEXT }
     )
   }
+
+  // 2) Task Completion Summary — second priority. Reads from rich rankings.
+  if (founders.length || interns.length) {
+    y = ensureRoom(doc, y, 160)
+    y = drawHeading(doc, 'Task Completion Summary', y + 24)
+    const completionRows = [...founders, ...interns]
+      .map(r => ({ ...r, done: Number(r?.done || 0) }))
+      .sort((a, b) => b.done - a.done)
+      .slice(0, 10)
+    if (completionRows.length) {
+      autoTable(doc, {
+        startY: y + 6,
+        head: [['#', 'Name', 'Role', 'Title', 'Tasks done']],
+        body: completionRows.map((r, i) => [i + 1, r.name || '—', r.role || '—', r.title || '—', r.done]),
+        theme: 'striped',
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: COLOR_ACCENT, textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: PAGE_MARGIN_X, right: PAGE_MARGIN_X }
+      })
+      y = doc.lastAutoTable.finalY
+    }
+  }
+
+  // 3) Assigned Workload Summary — third priority. `total` is the per-user
+  // assigned-task count returned by get_rankings_rpc.
+  if (founders.length || interns.length) {
+    y = ensureRoom(doc, y, 160)
+    y = drawHeading(doc, 'Assigned Workload Summary', y + 24)
+    const workloadRows = [...founders, ...interns]
+      .map(r => ({
+        ...r,
+        total: Number(r?.total || 0),
+        done: Number(r?.done || 0),
+        completion_pct: Number(r?.total || 0) > 0 ? Math.round((Number(r?.done || 0) / Number(r?.total || 0)) * 100) : 0
+      }))
+      .filter(r => r.total > 0)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10)
+    if (workloadRows.length) {
+      autoTable(doc, {
+        startY: y + 6,
+        head: [['#', 'Name', 'Title', 'Assigned', 'Done', 'Completion %']],
+        body: workloadRows.map((r, i) => [i + 1, r.name || '—', r.title || '—', r.total, r.done, `${r.completion_pct}%`]),
+        theme: 'striped',
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: COLOR_ACCENT, textColor: [255, 255, 255], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { left: PAGE_MARGIN_X, right: PAGE_MARGIN_X }
+      })
+      y = doc.lastAutoTable.finalY
+    } else {
+      y = drawParagraph(doc, 'No assignments recorded for this period.', y + 6, { color: COLOR_MUTED })
+    }
+  }
+
+  // 4) Final Scores / Score Breakdown — LEAST important; rendered last.
+  drawBreakdownTable(founders, 'Founder score breakdown')
+  drawBreakdownTable(interns, 'Intern score breakdown')
 
   // Page chrome (header / footer / page numbers)
   drawPageChrome(doc, chrome)

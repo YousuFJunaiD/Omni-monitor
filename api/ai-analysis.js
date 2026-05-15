@@ -150,18 +150,32 @@ function buildPrompt(context) {
   if (kind === 'executive_report') {
     // Structured weekly/monthly executive report. Ollama is asked to return
     // ONLY a JSON object whose keys match AI_SECTIONS in src/lib/reportPdf.js.
+    // Phase 16: analysis priority is now strike-first (discipline > completion
+    // > workload > score) per project rule. The prompt makes this explicit so
+    // Ollama doesn't lead with "best score" framing.
     return [
       'You are an enterprise operations analyst for an internal AI management system.',
       'Based ONLY on the provided JSON data, generate a detailed professional management report.',
+      '',
+      'CRITICAL ANALYSIS PRIORITY (apply in this order, do NOT treat score as the main ranking factor):',
+      '  1. STRIKES — most important. A user with high strikes is a discipline risk even if their score is high. Lead the analysis with strike data.',
+      '  2. COMPLETED TASKS — second priority. Completion count reflects real delivered work and matters more than raw score.',
+      '  3. ASSIGNED WORKLOAD — third priority. Use assigned counts to provide workload context (over-allocated vs idle).',
+      '  4. FINAL SCORE — least important. Score is a calculated summary, not the source of truth. Mention it last in each section that discusses it.',
       '',
       'Strict rules:',
       '- Do not invent facts.',
       '- If a section has no relevant data, write: "Data unavailable for this period."',
       '- Names, scores, counts must be quoted from the JSON exactly.',
       '- Keep each section concise: 2-5 sentences max. No bullet lists.',
+      '- In top_performers and underperforming_members, FLAG users with strikes >= 3 as a discipline risk regardless of score.',
+      '- In strike_discipline_summary, name the top offenders by strike count, not by score.',
       '',
       'Return ONLY a single valid JSON object with these exact keys (all strings):',
       '  executive_summary',
+      '  strike_discipline_summary',
+      '  task_completion_summary',
+      '  assigned_workload_summary',
       '  operational_health',
       '  productivity_analysis',
       '  top_performers',
@@ -169,7 +183,6 @@ function buildPrompt(context) {
       '  overdue_risks',
       '  review_bottlenecks',
       '  proof_quality_summary',
-      '  strike_discipline_summary',
       '  department_summary',
       '  recommended_actions',
       '  next_week_priorities',
