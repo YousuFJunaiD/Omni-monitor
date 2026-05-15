@@ -42,6 +42,10 @@ import './styles.css'
 // BRAND_CONFIG is the legacy name; all in-file references keep working because
 // the field names are identical.
 import BRAND_CONFIG from './config/clientConfig.js'
+// Phase 14: reportPdf module is heavy (jsPDF ~250 KB + autotable ~30 KB).
+// Lazy-load it at click time so non-CEO sessions (and CEO before they click a
+// PDF button) never pay the download cost. Each PDF handler imports it on
+// demand from src/lib/reportPdf.js.
 
 const TOKEN_KEY = 'omnimate_session_token'
 const LEGACY_TOKEN_KEY = 'omnimart_session_token'
@@ -1790,7 +1794,20 @@ function TasksTab({ dash, token, me, reload, notify, pendingTaskId = null, clear
     return true
   })
 
-  const taskFilterUsers = visibleUsers.filter(u => visibleRoleTasks.some(t => t.assigned_to_id === u.id))
+  // Phase 14 fix: the Tasks filter dropdown was previously narrowed to only
+  // users who appeared in the currently-loaded task slice. That hid valid
+  // teammates when they happened to have no tasks in the active view. Now
+  // we source from the full RBAC-scoped visibleUsers list (which the server
+  // already filters via get_dashboard), then apply role-specific scoping:
+  //   • INTERN → only self
+  //   • FOUNDER/BOARD → self + interns they manage
+  //   • CEO → everyone visibleUsers contains
+  const taskFilterUsers = useMemo(() => {
+    if (!Array.isArray(visibleUsers)) return []
+    if (isIntern) return visibleUsers.filter(u => u?.id === safeMe.id)
+    if (isFounder) return visibleUsers.filter(u => u?.id === safeMe.id || canManageInternForUser(safeMe, u))
+    return visibleUsers
+  }, [visibleUsers, isIntern, isFounder, safeMe])
 
   // Apply search + filters after role visibility has been enforced on the client.
   const searchFiltered = visibleRoleTasks.filter(t => {
@@ -3771,32 +3788,173 @@ function MoreTab({ dash, token, me, reload, notify, goToTask, goToTab }) {
     finally { setReportLoading(false) }
   }
 
+  // Phase 14: rich context for the AI executive report. Pull from real
+  // dashboard payload + the just-loaded metrics report. The Ollama prompt
+  // asks for a structured JSON response with named sections; if Ollama
+  // returns plain text we keep it as `rawText` and still produce a PDF.
+  function buildAiReportContext(period, currentReport) {
+    const visibleUsers = Array.isArray(dash?.visible_users) ? dash.visible_users : []
+    const overdue = dash?.attention_overdue || []
+    const needsReview = dash?.attention_needs_review || []
+    const blocked = dash?.attention_blocked || []
+    const proofFeed = dash?.proof_feed || []
+    const founderRank = dash?.founder_ranking || []
+    const internRank = dash?.intern_ranking || []
+    const ideas = dash?.ideas || []
+
+    // Inactive proxy: ranking rows with done=0 AND submissions=0 AND total>0.
+    const allRank = [...founderRank, ...internRank]
+    const inactiveMembers = allRank
+      .filter(r => (Number(r.done) || 0) === 0 && (Number(r.submissions) || 0) === 0 && (Number(r.total) || 0) > 0)
+      .map(r => ({ name: r.name, role: r.role, department: r.department || '' }))
+
+    // Department aggregation from rankings (best-effort).
+    const deptMap = {}
+    for (const r of allRank) {
+      const k = r.department || 'unassigned'
+      if (!deptMap[k]) deptMap[k] = { department: k, members: 0, done: 0, total: 0, overdue: 0, strikes: 0 }
+      deptMap[k].members += 1
+      deptMap[k].done += Number(r.done) || 0
+      deptMap[k].total += Number(r.total) || 0
+      deptMap[k].overdue += Number(r.overdue) || 0
+      deptMap[k].strikes += Number(r.strikes) || 0
+    }
+
+    const totalStrikes = visibleUsers.reduce((s, u) => s + Number(u.strikes || 0), 0)
+    const activeUsers = visibleUsers.filter(u => u.active !== false).length
+
+    return {
+      // Tells api/ai-analysis.js to use the executive_report system prompt.
+      report_kind: 'executive_report',
+      period,
+      generated_at: new Date().toISOString(),
+      // Counts
+      active_users: activeUsers,
+      total_tasks: (Number(currentReport?.rows?.reduce?.((s, r) => s + (Number(r.tasks_assigned) || 0), 0))) || null,
+      completed_tasks: (Number(currentReport?.rows?.reduce?.((s, r) => s + (Number(r.completed) || 0), 0))) || null,
+      open_tasks: overdue.length + needsReview.length + blocked.length,
+      overdue_tasks: overdue.length,
+      tasks_under_review: needsReview.length,
+      blocked_tasks: blocked.length,
+      proof_submissions: proofFeed.length,
+      total_strikes: totalStrikes,
+      inactive_members: inactiveMembers.length,
+      open_ideas: ideas.filter(i => i.status !== 'APPROVED' && i.status !== 'REJECTED').length,
+      // Detail
+      rankings: {
+        founders: founderRank.slice(0, 10),
+        interns: internRank.slice(0, 10)
+      },
+      best_founder: currentReport?.best_founder || (founderRank[0] || null),
+      best_intern:  currentReport?.best_intern  || (internRank[0]  || null),
+      inactive_members_list: inactiveMembers.slice(0, 10),
+      department_stats: Object.values(deptMap),
+      review_bottlenecks: needsReview.slice(0, 10).map(t => ({
+        title: t.title, assigned_to: t.assigned_to_name, since: t.created_at
+      })),
+      overdue_samples: overdue.slice(0, 10).map(t => ({
+        title: t.title, assigned_to: t.assigned_to_name, due: t.due_date
+      })),
+      proof_samples: proofFeed.slice(0, 5).map(p => ({
+        user: p.user, task: p.task_title, submitted_at: p.created_at, is_submission: !!p.is_submission
+      })),
+      report_metrics: currentReport || null
+    }
+  }
+
+  // Try to parse Ollama's response as JSON. Tolerates code-fenced JSON.
+  function parseAiSections(raw) {
+    if (typeof raw !== 'string') return null
+    const cleaned = raw
+      .replace(/^```(?:json)?/i, '')
+      .replace(/```$/i, '')
+      .trim()
+    // Find the outermost {...} block.
+    const first = cleaned.indexOf('{')
+    const last = cleaned.lastIndexOf('}')
+    if (first < 0 || last <= first) return null
+    try {
+      const obj = JSON.parse(cleaned.slice(first, last + 1))
+      if (obj && typeof obj === 'object' && !Array.isArray(obj)) return obj
+    } catch {
+      return null
+    }
+    return null
+  }
+
+  // Map an /api/ai-analysis response to a UI mode label.
+  function aiResponseMode(ai) {
+    if (!ai || ai.ok === false) return 'Rule-based'
+    if (ai.fallback) return 'Fallback'
+    if (ai.provider === 'ollama') return 'Ollama'
+    if (ai.provider === 'openai') return 'OpenAI'
+    return 'Rule-based'
+  }
+
   async function generateAiReport(period) {
     setAiReportLoading(true)
     try {
-      const context = {
-        period,
-        report,
-        rankings: {
-          founders: dash.founder_ranking || [],
-          interns: dash.intern_ranking || []
-        },
-        queues: {
-          overdue: dash.attention_overdue || [],
-          needs_review: dash.attention_needs_review || [],
-          blocked: dash.attention_blocked || []
+      // Make sure the metrics report for this period is available — load it
+      // first if it isn't, so the AI context contains real numbers.
+      let currentReport = report
+      if (!currentReport || currentReport.period !== period) {
+        try {
+          currentReport = await rpc('get_report_rpc', { p_token: token, p_period: period })
+          setReport(currentReport)
+        } catch {
+          currentReport = null
         }
       }
+
+      const context = buildAiReportContext(period, currentReport)
       const ai = await requestAiAnalysis(context).catch(() => ({ ok: false }))
+      const rawText = ai?.ok && typeof ai.summary === 'string' ? ai.summary.trim() : ''
+      const sections = rawText ? parseAiSections(rawText) : null
+      const mode = aiResponseMode(ai)
+
+      // Persist in ai_reports (round13 RPC). p_ai_summary stores the raw
+      // text Ollama returned (or null if AI was off). p_report_json carries
+      // the structured sections + the context so the history is reproducible.
       const data = await rpc('generate_ai_report_rpc', {
         p_token: token,
         p_period: period,
-        p_ai_summary: ai.ok ? ai.summary : null,
-        p_report_json: { ai_enabled: Boolean(ai.ai_enabled), ai_error: ai.error || null }
+        p_ai_summary: rawText || null,
+        p_report_json: {
+          ai_mode: mode,
+          ai_enabled: Boolean(ai?.ai_enabled ?? (mode !== 'Rule-based' && mode !== 'Fallback')),
+          ai_error: ai?.error || null,
+          structured: !!sections,
+          sections: sections || null,
+          context_summary: {
+            period: context.period,
+            generated_at: context.generated_at,
+            active_users: context.active_users,
+            overdue_tasks: context.overdue_tasks,
+            tasks_under_review: context.tasks_under_review,
+            blocked_tasks: context.blocked_tasks,
+            inactive_members: context.inactive_members,
+            total_strikes: context.total_strikes
+          }
+        }
       })
-      setAiReport(data.report || null)
+
+      setAiReport({
+        ...(data.report || {}),
+        context,
+        sections,
+        rawText: sections ? null : rawText,
+        mode,
+        report_metrics: currentReport
+      })
       setReportPeriod(period)
-      notify(ai.ok ? 'AI report generated' : 'Metrics report saved. AI is disabled or unavailable.')
+
+      const msg =
+        mode === 'Ollama' || mode === 'OpenAI'
+          ? `${period === 'monthly' ? 'Monthly' : 'Weekly'} AI report generated via ${mode}.`
+          : mode === 'Fallback'
+          ? 'AI provider unreachable — rule-based report generated.'
+          : 'Rule-based analysis generated from operational data.'
+      notify(msg)
     } catch (ex) {
       notify(ex?.message || 'Unable to generate AI report', 'error')
     } finally {
@@ -3950,36 +4108,129 @@ function MoreTab({ dash, token, me, reload, notify, goToTask, goToTab }) {
                 <Zap size={14} /> Monthly AI Report
               </button>
             </div>
+            {/* Metrics report preview — premium card with PDF primary, JSON secondary */}
             {report && (
-              <div className="report-content">
-                <div className="report-best">
+              <div className="report-preview-card">
+                <div className="report-preview-head">
+                  <div>
+                    <span className="report-preview-eyebrow">{(reportPeriod || 'weekly') === 'monthly' ? 'Monthly' : 'Weekly'} Operations Report</span>
+                    <h3 className="report-preview-title">{BRAND_CONFIG.productName} · {(reportPeriod || 'weekly') === 'monthly' ? 'Monthly' : 'Weekly'} review</h3>
+                  </div>
+                  <span className="report-preview-mode">Rule-based</span>
+                </div>
+                <div className="report-preview-best">
                   {report.best_founder && (
                     <div className="best-item">
-                      <span className="best-label">Best Founding Member</span>
+                      <span className="best-label">Top founder</span>
                       <span className="best-name">{report.best_founder.name}</span>
                       <span className="best-score">{report.best_founder.score} pts</span>
                     </div>
                   )}
                   {report.best_intern && (
                     <div className="best-item">
-                      <span className="best-label">Best Intern</span>
+                      <span className="best-label">Top intern</span>
                       <span className="best-name">{report.best_intern.name}</span>
                       <span className="best-score">{report.best_intern.score} pts</span>
                     </div>
                   )}
                 </div>
-                <button className="btn btn-primary" onClick={() => downloadJson(`omnimate-${reportPeriod}-report.json`, report)}>
-                  <Download size={14} /> Download JSON
-                </button>
+                <div className="report-preview-actions">
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const mod = await import('./lib/reportPdf.js')
+                        const period = reportPeriod || 'weekly'
+                        const doc = mod.generateMetricsReportPdf(report, { aiModeLabel: 'Rule-based', period })
+                        mod.downloadPdf(doc, mod.reportFilename('operations-report', period))
+                      } catch (ex) {
+                        notify(ex?.message || 'PDF could not be generated', 'error')
+                      }
+                    }}
+                  >
+                    <Download size={14} /> Download {(reportPeriod || 'weekly') === 'monthly' ? 'Monthly' : 'Weekly'} PDF
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    type="button"
+                    onClick={() => downloadJson(`${BRAND_CONFIG.companyName.toLowerCase()}-${reportPeriod || 'weekly'}-report.json`, report)}
+                  >
+                    Download raw JSON
+                  </button>
+                </div>
               </div>
             )}
+
+            {/* AI report preview — same shape, AI-specific buttons + mode badge */}
             {aiReport && (
-              <div className="report-content ai-report-content">
-                <b>{aiReport.period} AI Report</b>
-                <p className="muted small">{aiReport.ai_summary}</p>
-                <button className="btn btn-primary" onClick={() => downloadJson(`omnimate-${aiReport.period}-ai-report.json`, aiReport)}>
-                  <Download size={14} /> Download AI JSON
-                </button>
+              <div className="report-preview-card report-preview-ai">
+                <div className="report-preview-head">
+                  <div>
+                    <span className="report-preview-eyebrow">{(aiReport.period || reportPeriod || 'weekly') === 'monthly' ? 'Monthly' : 'Weekly'} AI Executive Report</span>
+                    <h3 className="report-preview-title">{BRAND_CONFIG.aiAssistantName} · {(aiReport.period || reportPeriod || 'weekly') === 'monthly' ? 'Monthly' : 'Weekly'} analysis</h3>
+                  </div>
+                  <span className={`report-preview-mode report-preview-mode-${(aiReport.mode || 'Rule-based').toLowerCase().replace(/[^a-z]/g, '-')}`}>
+                    {aiReport.mode || 'Rule-based'}
+                  </span>
+                </div>
+                <p className="muted small">
+                  {aiReport.sections
+                    ? 'Structured AI report ready. Includes executive summary, productivity analysis, recommended actions, and next-week priorities.'
+                    : aiReport.rawText
+                    ? 'AI-generated narrative ready. Structured sections not detected — the report renders the raw analysis verbatim.'
+                    : aiReport.mode === 'Fallback'
+                    ? 'AI provider unreachable. Rule-based analysis generated from operational data.'
+                    : 'Rule-based analysis generated from operational data.'}
+                </p>
+                {aiReport.context_summary && (
+                  <div className="report-preview-metrics">
+                    {[
+                      ['Overdue', aiReport.context_summary.overdue_tasks],
+                      ['In review', aiReport.context_summary.tasks_under_review],
+                      ['Blocked', aiReport.context_summary.blocked_tasks],
+                      ['Strikes', aiReport.context_summary.total_strikes]
+                    ].filter(([, v]) => v !== undefined && v !== null).map(([label, value]) => (
+                      <div key={label} className="report-preview-metric">
+                        <b>{value}</b>
+                        <span>{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="report-preview-actions">
+                  <button
+                    className="btn btn-primary"
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const mod = await import('./lib/reportPdf.js')
+                        const period = aiReport.period || reportPeriod || 'weekly'
+                        const doc = mod.generateAiReportPdf(
+                          {
+                            context: aiReport.context,
+                            sections: aiReport.sections,
+                            rawText: aiReport.rawText,
+                            report: aiReport
+                          },
+                          { aiModeLabel: aiReport.mode || 'Rule-based', period }
+                        )
+                        mod.downloadPdf(doc, mod.reportFilename('ai-executive-report', period))
+                      } catch (ex) {
+                        notify(ex?.message || 'PDF could not be generated', 'error')
+                      }
+                    }}
+                  >
+                    <Download size={14} /> Download {(aiReport.period || reportPeriod || 'weekly') === 'monthly' ? 'Monthly' : 'Weekly'} AI PDF
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    type="button"
+                    onClick={() => downloadJson(`${BRAND_CONFIG.companyName.toLowerCase()}-${aiReport.period || 'weekly'}-ai-report.json`, aiReport)}
+                  >
+                    Download raw JSON
+                  </button>
+                </div>
               </div>
             )}
           </div>

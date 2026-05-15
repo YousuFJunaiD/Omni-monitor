@@ -145,6 +145,44 @@ const providers = {
 }
 
 function buildPrompt(context) {
+  const kind = String((context && context.report_kind) || '').toLowerCase()
+
+  if (kind === 'executive_report') {
+    // Structured weekly/monthly executive report. Ollama is asked to return
+    // ONLY a JSON object whose keys match AI_SECTIONS in src/lib/reportPdf.js.
+    return [
+      'You are an enterprise operations analyst for an internal AI management system.',
+      'Based ONLY on the provided JSON data, generate a detailed professional management report.',
+      '',
+      'Strict rules:',
+      '- Do not invent facts.',
+      '- If a section has no relevant data, write: "Data unavailable for this period."',
+      '- Names, scores, counts must be quoted from the JSON exactly.',
+      '- Keep each section concise: 2-5 sentences max. No bullet lists.',
+      '',
+      'Return ONLY a single valid JSON object with these exact keys (all strings):',
+      '  executive_summary',
+      '  operational_health',
+      '  productivity_analysis',
+      '  top_performers',
+      '  underperforming_members',
+      '  overdue_risks',
+      '  review_bottlenecks',
+      '  proof_quality_summary',
+      '  strike_discipline_summary',
+      '  department_summary',
+      '  recommended_actions',
+      '  next_week_priorities',
+      '',
+      'Do NOT add any commentary or markdown outside the JSON. The JSON value must',
+      'be parseable by JSON.parse. No code fences. No explanation.',
+      '',
+      'Operational data context:',
+      JSON.stringify(context || {}, null, 2)
+    ].join('\n')
+  }
+
+  // Default — short advisory note used by the Phase 11 Executive Note feature.
   return [
     'You are an internal work review assistant. Return concise operational analysis.',
     'Include strengths, delays, blockers, risk flags, and recommended next actions.',
