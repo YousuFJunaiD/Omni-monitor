@@ -51,7 +51,15 @@ const BRAND_CONFIG = {
   },
   financePlaceholderText:
     'Financial and project tracking is reserved for a future phase. Connect your billing or PM system to populate this card.',
-  workspaceLabel: 'Operations'
+  workspaceLabel: 'Operations',
+  // Phase 12 (commercial readiness): additional placeholders for white-label.
+  supportEmail: 'support@omnimate.example',
+  supportUrl: '',
+  demoModeLabel: 'Demo workspace',
+  demoModeBannerText: '',  // set non-empty to display a top-of-app demo banner
+  loginDescription: 'Private workspace for the team.',
+  emptyDashboardHint: 'Create a task to give the team a clear owner, outcome, and next step.',
+  copyrightOwner: 'Omnimate'
 }
 
 const TOKEN_KEY = 'omnimate_session_token'
@@ -82,7 +90,8 @@ async function rpc(name, args) {
 function classifyAiMode(response) {
   if (!response || response.ok === false) return 'unavailable'
   if (response.fallback === true) return 'fallback'
-  if (response.provider === 'ollama') return 'active'
+  // Real provider responded successfully — Ollama or any OpenAI-compatible host.
+  if (response.provider === 'ollama' || response.provider === 'openai') return 'active'
   return 'mock'
 }
 
@@ -396,7 +405,7 @@ function Login({ onLogin }) {
             <p>{BRAND_CONFIG.appHeading}</p>
           </div>
         </div>
-        <p className="login-desc">Private workspace for the team.</p>
+        <p className="login-desc">{BRAND_CONFIG.loginDescription}</p>
         {!supabaseReady && (
           <div className="notice notice-warn">
             <Info size={14} />
@@ -570,6 +579,9 @@ function App() {
 
   return (
     <div className="app-shell">
+      {BRAND_CONFIG.demoModeBannerText ? (
+        <div className="demo-banner" role="note">{BRAND_CONFIG.demoModeBannerText}</div>
+      ) : null}
       <NavBar tab={tab} setTab={setTab} me={dash.me} unreadNotif={dash.unread_notifications || 0} onLogout={logout} aiMode={aiMode} />
       <main className="app-content">
         {err && <div className="notice notice-error">{err}</div>}
@@ -764,7 +776,9 @@ const ExecutiveNote = memo(function ExecutiveNote({ role, dash, me, aiMode = 'ch
     }
     requestAiAnalysis(context)
       .then(res => {
-        if (res?.ok && res.summary && res.provider === 'ollama') setAiNote(String(res.summary).trim())
+        if (res?.ok && res.summary && (res.provider === 'ollama' || res.provider === 'openai')) {
+          setAiNote(String(res.summary).trim())
+        }
       })
       .catch(() => { /* fall back silently to rule-based */ })
   }, [shouldTryAi, aiTried, baseNote, r, dash])

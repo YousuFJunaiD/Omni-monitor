@@ -6566,3 +6566,516 @@ textarea {
   box-shadow: var(--shadow-sm);
 }
 /* ─── End Phase 11 ────────────────────────────────────────────────────────── */
+
+/* ─── Phase 12: Premium UI/UX polish pass (commercial readiness) ──────────── */
+/* All rules scoped to .app-shell or specific classes that exist in main.jsx.
+   Light theme only. No layout-structure changes. */
+
+/* Demo banner (only renders when BRAND_CONFIG.demoModeBannerText is set) */
+.demo-banner {
+  background: linear-gradient(180deg, var(--accent-2-dim) 0%, transparent 100%);
+  color: var(--accent-2);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+/* Global typography refinements — restrained, no flashy gradients */
+.app-shell {
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+}
+.app-shell h1, .app-shell h2, .app-shell h3 {
+  letter-spacing: -0.015em;
+}
+.app-shell h2 { font-weight: 700; }
+.app-shell .muted { color: var(--text-3); }
+
+/* Page header — more enterprise, more air */
+.app-shell .page-header {
+  padding: 24px 0 14px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 18px;
+}
+.app-shell .page-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text);
+}
+.app-shell .page-subtitle {
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+/* NavBar premium glass-ish backdrop, but flat (no gradient) */
+.app-shell .navbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+}
+.app-shell .nav-item {
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  transition: background var(--transition), color var(--transition);
+}
+.app-shell .nav-item.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.app-shell .nav-title {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.app-shell .nav-subtitle {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.app-shell .nav-logo {
+  background: var(--accent);
+  color: white;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.25), 0 4px 12px rgba(37, 99, 235, 0.15);
+}
+
+/* Panels — soft enterprise shadow, more breathable padding */
+.app-shell .panel {
+  padding: 22px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 4px 12px rgba(15, 23, 42, 0.04);
+  transition: box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.app-shell .panel:hover {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px rgba(15, 23, 42, 0.07);
+}
+.app-shell .section-head { margin-bottom: 14px; }
+.app-shell .section-title-row h2 {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.008em;
+}
+.app-shell .section-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-radius: 7px;
+}
+
+/* Stat cards — premium proportional grid */
+.app-shell .stat-card {
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  transition: box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1), transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.app-shell .stat-card:hover {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
+}
+.app-shell .stat-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+}
+.app-shell .stat-card.stat-accent .stat-icon {
+  background: var(--danger-dim);
+  color: var(--danger);
+}
+.app-shell .stat-value {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.app-shell .stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.10em;
+}
+
+/* Buttons — consistent, premium press feel */
+.app-shell .btn {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.app-shell .btn:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.app-shell .btn-primary {
+  background: var(--accent);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.20), 0 1px 3px rgba(37, 99, 235, 0.15);
+}
+.app-shell .btn-primary:hover {
+  background: #1D4ED8;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.20), 0 8px 22px rgba(37, 99, 235, 0.20);
+}
+.app-shell .btn-primary:active { transform: translateY(0.5px); }
+.app-shell .btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+.app-shell .btn-ghost:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.app-shell .btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.app-shell .btn-strike {
+  background: var(--danger);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(220, 38, 38, 0.20), 0 1px 3px rgba(220, 38, 38, 0.15);
+}
+.app-shell .btn-strike:hover {
+  background: #B91C1C;
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.20), 0 8px 22px rgba(220, 38, 38, 0.20);
+}
+.app-shell .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Attention columns — premium look */
+.app-shell .attention-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 18px;
+}
+@media (max-width: 1000px) {
+  .app-shell .attention-grid { grid-template-columns: 1fr; }
+}
+.app-shell .attention-col {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+.app-shell .attention-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: -0.005em;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.app-shell .attention-head b {
+  margin-left: auto;
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.app-shell .attention-head.attention-overdue { color: var(--danger); }
+.app-shell .attention-head.attention-overdue b { background: var(--danger-dim); color: var(--danger); }
+.app-shell .attention-head.attention-review { color: var(--accent-2); }
+.app-shell .attention-head.attention-review b { background: var(--accent-2-dim); color: var(--accent-2); }
+.app-shell .attention-head.attention-blocked { color: var(--danger); }
+.app-shell .attention-head.attention-blocked b { background: var(--danger-dim); color: var(--danger); }
+.app-shell .attention-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.app-shell .attention-item:last-child { border-bottom: none; padding-bottom: 0; }
+.app-shell .attention-task-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+.app-shell .attention-meta {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-3);
+  align-items: center;
+}
+
+/* Task cards in TasksTab — slightly tighter and more premium */
+.app-shell .task-row,
+.app-shell .task-card {
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  transition: all 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.app-shell .task-row:hover,
+.app-shell .task-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+/* Task detail drawer — premium feel */
+.app-shell .task-detail-panel {
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -16px 0 40px rgba(15, 23, 42, 0.08);
+}
+
+/* Empty states — softer, more inviting */
+.app-shell .empty,
+.app-shell .empty-state {
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+}
+.app-shell .empty-state svg,
+.app-shell .empty svg { opacity: 0.6; margin-bottom: 8px; }
+
+/* Activity feed — premium dots and timeline */
+.app-shell .activity-item {
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.app-shell .activity-item:last-child { border-bottom: none; }
+.app-shell .activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  margin-top: 6px;
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.app-shell .activity-text {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.app-shell .activity-time {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-left: 8px;
+}
+
+/* Form inputs — premium look */
+.app-shell .input,
+.app-shell input[type="text"],
+.app-shell input[type="email"],
+.app-shell input[type="password"],
+.app-shell input[type="number"],
+.app-shell input[type="date"],
+.app-shell select,
+.app-shell textarea {
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.app-shell .input:focus,
+.app-shell input:focus,
+.app-shell select:focus,
+.app-shell textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+/* Badge polish */
+.app-shell .badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* Ranking rows — make leaderboards feel premium */
+.app-shell .rank-row {
+  display: grid;
+  grid-template-columns: 36px 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.app-shell .rank-row:last-child { border-bottom: none; }
+.app-shell .rank-pos {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+.app-shell .rank-score {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.app-shell .rank-danger {
+  background: rgba(220, 38, 38, 0.03);
+  border-radius: 6px;
+}
+.app-shell .rank-danger .rank-pos {
+  background: var(--danger-dim);
+  color: var(--danger);
+}
+
+/* Notification rows: premium inset feel */
+.app-shell .notif-item {
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.app-shell .notif-item.notif-unread {
+  background: var(--accent-dim);
+  border-color: rgba(37, 99, 235, 0.15);
+}
+.app-shell .notif-cat {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* Admin diagnostics — subtle premium */
+.app-shell .admin-stat {
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.app-shell .admin-stat-value {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+.app-shell .admin-audit-row {
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.app-shell .admin-audit-action {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+/* Executive Note premium tuning */
+.app-shell .exec-note {
+  padding: 18px 22px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface) 100%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.05);
+}
+.app-shell .exec-note::before {
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+}
+.app-shell .exec-note-body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.app-shell .exec-note-title {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.app-shell .exec-note-title svg { color: var(--accent); }
+
+/* Workflow lanes (legacy HomeTab fallback) */
+.app-shell .workflow-lane {
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 12px;
+}
+.app-shell .workflow-lane-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+/* Login screen — final premium polish */
+.login-wrap {
+  background: linear-gradient(180deg, #F8FAFC 0%, #EEF2F7 100%);
+}
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 24px 60px rgba(15, 23, 42, 0.08);
+}
+.brand-mark {
+  background: var(--accent);
+  color: white;
+  font-weight: 800;
+  border-radius: 10px;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.20), 0 8px 22px rgba(37, 99, 235, 0.15);
+}
+
+/* Loading bar polish */
+.app-shell .loading-bar {
+  background: var(--border-soft);
+}
+.app-shell .loading-bar span {
+  background: var(--accent);
+}
+
+/* Mobile tighten-up across the board */
+@media (max-width: 600px) {
+  .app-shell .panel { padding: 16px; border-radius: 10px; }
+  .app-shell .stat-card { padding: 12px 14px; }
+  .app-shell .page-header { padding: 16px 0 10px; margin-bottom: 12px; }
+  .app-shell .page-title { font-size: 20px; }
+  .app-shell .stat-value { font-size: 20px; }
+  .app-shell .attention-col { padding: 14px; }
+  .app-shell .exec-note { padding: 14px 16px; }
+  .app-shell .notif-item { padding: 12px 14px; }
+}
+/* ─── End Phase 12 premium polish ─────────────────────────────────────────── */
