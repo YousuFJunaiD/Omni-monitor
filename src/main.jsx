@@ -3798,12 +3798,20 @@ function ChatTab({ dash, token, me, notify }) {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [showDmPicker, setShowDmPicker] = useState(false)
-
+  // Phase 18.5: DM picker now pulls from server-side allowlist instead of
+  // dash.visible_users — interns must not see CEO/other interns even in the
+  // picker. Loaded on demand when the picker opens.
+  const [dmCandidates, setDmCandidates] = useState([])
+  const [dmCandidatesLoading, setDmCandidatesLoading] = useState(false)
+  // Cache of users by id (from dash.visible_users) — used to enrich messages
+  // that arrive via realtime broadcast (broadcast payloads don't carry the
+  // joined sender_name/sender_role).
   const visibleUsers = Array.isArray(dash?.visible_users) ? dash.visible_users : []
-  const dmCandidates = useMemo(
-    () => visibleUsers.filter(u => u?.id && u.id !== me?.id),
-    [visibleUsers, me]
-  )
+  const userById = useMemo(() => {
+    const m = new Map()
+    for (const u of visibleUsers) if (u?.id) m.set(u.id, u)
+    return m
+  }, [visibleUsers])
 
   const selectedThread = threads.find(t => t.id === selectedId) || null
 
@@ -3841,6 +3849,70 @@ function ChatTab({ dash, token, me, notify }) {
   useEffect(() => { loadThreads() }, [loadThreads])
   useEffect(() => { if (selectedId) loadMessages(selectedId) }, [selectedId, loadMessages])
 
+  // Phase 18.5: load the server-enforced DM allowlist when the picker opens.
+  const loadDmCandidates = useCallback(async () => {
+    if (!token) return
+    setDmCandidatesLoading(true)
+    try {
+      const data = await rpc('get_chat_dm_candidates_rpc', { p_token: token })
+      setDmCandidates(arrayFromRpc(data, ['candidates']))
+    } catch (ex) {
+      setDmCandidates([])
+      notify(ex?.message || 'Unable to load DM contacts', 'error')
+    } finally {
+      setDmCandidatesLoading(false)
+    }
+  }, [token, notify])
+
+  useEffect(() => {
+    if (showDmPicker) loadDmCandidates()
+  }, [showDmPicker, loadDmCandidates])
+
+  // Phase 18.5: realtime via Supabase broadcast. The chat_messages table has
+  // RLS-no-policies + custom-session auth, so postgres_changes can't broadcast
+  // safely (it would require auth.uid() policies that don't apply here).
+  // Broadcast channels are policy-free and tied only to the channel name.
+  // The sender broadcasts after a successful RPC; subscribers on the same
+  // channel name receive it within ~50ms.
+  //
+  // Subscription is scoped to the SELECTED thread only — switching threads
+  // unsubscribes the previous channel. The Refresh button remains as a
+  // backup for any missed event (rare but possible if a sender closes their
+  // tab before the broadcast fires).
+  useEffect(() => {
+    if (!selectedId || !supabase) return
+    let cancelled = false
+    const channel = supabase.channel(`chat:${selectedId}`, {
+      config: { broadcast: { self: false } }
+    })
+    channel.on('broadcast', { event: 'new_message' }, (payload) => {
+      if (cancelled) return
+      const m = payload?.payload
+      if (!m || !m.id || m.thread_id !== selectedId) return
+      // Drop duplicates (the sender already appended their own message).
+      setMessages(prev => {
+        if (prev.some(x => x.id === m.id)) return prev
+        const sender = userById.get(m.sender_id)
+        return [...prev, {
+          ...m,
+          sender_name: m.sender_name || sender?.name || (m.sender_id === me?.id ? me?.name : 'User'),
+          sender_role: m.sender_role || sender?.role || (m.sender_id === me?.id ? me?.role : null),
+          sender_avatar: m.sender_avatar || sender?.avatar_data_url || null
+        }]
+      })
+      // Bump last-message timestamp on the thread row + auto-mark-read.
+      setThreads(prev => prev.map(t => t.id === selectedId
+        ? { ...t, last_message_at: m.created_at, unread_count: 0 }
+        : t))
+      rpc('mark_chat_read_rpc', { p_token: token, p_thread_id: selectedId }).catch(() => null)
+    })
+    channel.subscribe()
+    return () => {
+      cancelled = true
+      try { supabase.removeChannel(channel) } catch { /* noop */ }
+    }
+  }, [selectedId, userById, me, token])
+
   async function sendMessage() {
     const body = draft.trim()
     if (!body || !selectedId || sending) return
@@ -3848,8 +3920,19 @@ function ChatTab({ dash, token, me, notify }) {
     try {
       const r = await rpc('send_chat_message_rpc', { p_token: token, p_thread_id: selectedId, p_body: body })
       setDraft('')
-      // Append the freshly-sent message locally and refresh thread metadata.
-      if (r?.message) setMessages(prev => [...prev, r.message])
+      const msg = r?.message
+      // Append the freshly-sent message locally — instant feedback.
+      if (msg) setMessages(prev => prev.some(x => x.id === msg.id) ? prev : [...prev, msg])
+      // Phase 18.5: broadcast to other subscribers of this thread. Best-effort:
+      // if it fails the receivers will see the message on their next refresh.
+      try {
+        if (msg && supabase) {
+          const ch = supabase.channel(`chat:${selectedId}`)
+          await ch.subscribe()
+          await ch.send({ type: 'broadcast', event: 'new_message', payload: msg })
+          await supabase.removeChannel(ch)
+        }
+      } catch { /* swallow — broadcast is best-effort */ }
       await loadThreads()
     } catch (ex) {
       notify(ex?.message || 'Could not send message', 'error')
@@ -3865,6 +3948,8 @@ function ChatTab({ dash, token, me, notify }) {
       await loadThreads()
       if (r?.thread_id) setSelectedId(r.thread_id)
     } catch (ex) {
+      // Phase 18.5: 'Not allowed' surfaces here when an intern tries to DM
+      // someone outside their department head/founder allowlist.
       notify(ex?.message || 'Could not start DM', 'error')
     }
   }
@@ -3908,7 +3993,14 @@ function ChatTab({ dash, token, me, notify }) {
                 <b>Start a direct message</b>
                 <button className="icon-btn icon-btn-sm" type="button" onClick={() => setShowDmPicker(false)}><X size={14} /></button>
               </div>
-              {dmCandidates.length === 0 && <p className="muted small">No other active users available.</p>}
+              {dmCandidatesLoading && <p className="muted small">Loading…</p>}
+              {!dmCandidatesLoading && dmCandidates.length === 0 && (
+                <p className="muted small">
+                  {String(me?.role || '').toUpperCase() === 'INTERN'
+                    ? 'You can DM only your own department head. None are available right now.'
+                    : 'No other active users available.'}
+                </p>
+              )}
               <div className="chat-dm-list">
                 {dmCandidates.map(u => (
                   <button key={u.id} type="button" className="chat-dm-candidate" onClick={() => startDm(u.id)}>
