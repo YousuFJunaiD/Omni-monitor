@@ -423,6 +423,7 @@ function Login({ onLogin }) {
 const NAV = [
   { id: 'home',   label: 'Home',   icon: Home },
   { id: 'tasks',  label: 'Tasks',  icon: ClipboardList },
+  { id: 'chat',   label: 'Chat',   icon: MessageSquare },
   { id: 'ideas',  label: 'Ideas',  icon: Lightbulb },
   { id: 'team',   label: 'Team',   icon: Users },
   { id: 'more',   label: 'More',   icon: MoreHorizontal },
@@ -574,6 +575,7 @@ function App() {
         <TabErrorBoundary resetKey={tab} message={tab === 'tasks' ? 'Unable to load tasks.' : 'Unable to load this section.'}>
           {tab === 'home'   && <HomeTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} aiMode={aiMode} />}
           {tab === 'tasks' && <TasksTab  dash={dash} token={token} me={dash.me} reload={load} notify={notify} pendingTaskId={pendingTaskId} clearPendingTaskId={clearPendingTaskId} />}
+          {tab === 'chat'  && <ChatTab   dash={dash} token={token} me={dash.me} notify={notify} />}
           {tab === 'ideas' && <IdeasTab  dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
           {tab === 'team'  && <TeamTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} />}
           {tab === 'more'  && <MoreTab   dash={dash} token={token} me={dash.me} reload={load} notify={notify} goToTask={goToTask} goToTab={goToTab} />}
@@ -3760,6 +3762,280 @@ function categoryCounts(items) {
     all += 1
   }
   return { ...counts, All: all }
+}
+
+// ─── Phase 18: CHAT TAB ─────────────────────────────────────────────────────
+// Simple internal chat. Two-pane layout:
+//   left  — list of threads (departments, leadership, DMs, task-linked)
+//   right — selected thread's messages + composer
+// No real-time subscriptions. Manual refresh + auto-refresh on send.
+// Server enforces RBAC via can_view_chat_thread.
+
+const CHAT_THREAD_KIND_LABEL = {
+  dm: 'Direct',
+  department: 'Department',
+  leadership: 'Leadership',
+  task: 'Task'
+}
+
+function chatThreadTitle(t) {
+  if (!t) return ''
+  if (t.title) return t.title
+  if (t.derived_title) return t.derived_title
+  if (t.kind === 'dm') return 'Direct message'
+  if (t.kind === 'task') return 'Task chat'
+  if (t.kind === 'department') return t.department || 'Department'
+  if (t.kind === 'leadership') return 'Leadership'
+  return 'Chat'
+}
+
+function ChatTab({ dash, token, me, notify }) {
+  const [threads, setThreads] = useState([])
+  const [threadsLoading, setThreadsLoading] = useState(false)
+  const [selectedId, setSelectedId] = useState(null)
+  const [messages, setMessages] = useState([])
+  const [messagesLoading, setMessagesLoading] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const [showDmPicker, setShowDmPicker] = useState(false)
+
+  const visibleUsers = Array.isArray(dash?.visible_users) ? dash.visible_users : []
+  const dmCandidates = useMemo(
+    () => visibleUsers.filter(u => u?.id && u.id !== me?.id),
+    [visibleUsers, me]
+  )
+
+  const selectedThread = threads.find(t => t.id === selectedId) || null
+
+  const loadThreads = useCallback(async () => {
+    if (!token) return
+    setThreadsLoading(true)
+    try {
+      const data = await rpc('get_chat_threads_rpc', { p_token: token })
+      setThreads(arrayFromRpc(data, ['threads']))
+    } catch (ex) {
+      notify(ex?.message || 'Unable to load chat threads', 'error')
+    } finally {
+      setThreadsLoading(false)
+    }
+  }, [token, notify])
+
+  const loadMessages = useCallback(async (threadId) => {
+    if (!token || !threadId) return
+    setMessagesLoading(true)
+    try {
+      const data = await rpc('get_chat_messages_rpc', { p_token: token, p_thread_id: threadId, p_limit: 200 })
+      setMessages(arrayFromRpc(data, ['messages']))
+      // Server-side marks as read for the sender on send; explicit read for viewer.
+      await rpc('mark_chat_read_rpc', { p_token: token, p_thread_id: threadId }).catch(() => null)
+      // Reduce the unread badge in local state to 0 for the selected thread.
+      setThreads(prev => prev.map(t => t.id === threadId ? { ...t, unread_count: 0 } : t))
+    } catch (ex) {
+      notify(ex?.message || 'Unable to load messages', 'error')
+      setMessages([])
+    } finally {
+      setMessagesLoading(false)
+    }
+  }, [token, notify])
+
+  useEffect(() => { loadThreads() }, [loadThreads])
+  useEffect(() => { if (selectedId) loadMessages(selectedId) }, [selectedId, loadMessages])
+
+  async function sendMessage() {
+    const body = draft.trim()
+    if (!body || !selectedId || sending) return
+    setSending(true)
+    try {
+      const r = await rpc('send_chat_message_rpc', { p_token: token, p_thread_id: selectedId, p_body: body })
+      setDraft('')
+      // Append the freshly-sent message locally and refresh thread metadata.
+      if (r?.message) setMessages(prev => [...prev, r.message])
+      await loadThreads()
+    } catch (ex) {
+      notify(ex?.message || 'Could not send message', 'error')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function startDm(otherUserId) {
+    try {
+      const r = await rpc('create_dm_thread_rpc', { p_token: token, p_other_user_id: otherUserId })
+      setShowDmPicker(false)
+      await loadThreads()
+      if (r?.thread_id) setSelectedId(r.thread_id)
+    } catch (ex) {
+      notify(ex?.message || 'Could not start DM', 'error')
+    }
+  }
+
+  const groupedThreads = useMemo(() => {
+    const groups = { Pinned: [], Direct: [] }
+    for (const t of threads) {
+      if (t.kind === 'leadership' || t.kind === 'department' || t.kind === 'task') {
+        groups.Pinned.push(t)
+      } else {
+        groups.Direct.push(t)
+      }
+    }
+    return groups
+  }, [threads])
+
+  return (
+    <div className="tab-chat">
+      <div className="page-header">
+        <div>
+          <p className="page-eyebrow">Internal chat</p>
+          <h1 className="page-title">Chat</h1>
+          <p className="page-subtitle">Direct messages, department channels, and task discussions.</p>
+        </div>
+        <div className="page-header-actions">
+          <button className="btn btn-sm" type="button" onClick={loadThreads} disabled={threadsLoading}>
+            <Activity size={14} /> {threadsLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <button className="btn btn-primary btn-sm" type="button" onClick={() => setShowDmPicker(v => !v)}>
+            <Plus size={14} /> New DM
+          </button>
+        </div>
+      </div>
+
+      <div className="chat-layout">
+        {/* Left: thread list */}
+        <aside className="chat-thread-list">
+          {showDmPicker && (
+            <div className="chat-dm-picker">
+              <div className="chat-dm-picker-head">
+                <b>Start a direct message</b>
+                <button className="icon-btn icon-btn-sm" type="button" onClick={() => setShowDmPicker(false)}><X size={14} /></button>
+              </div>
+              {dmCandidates.length === 0 && <p className="muted small">No other active users available.</p>}
+              <div className="chat-dm-list">
+                {dmCandidates.map(u => (
+                  <button key={u.id} type="button" className="chat-dm-candidate" onClick={() => startDm(u.id)}>
+                    <span className="chat-dm-name">{u.name}</span>
+                    <span className="chat-dm-meta">{displayRole(u.role)}{u.title ? ` · ${u.title}` : ''}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {Object.entries(groupedThreads).map(([label, list]) => (
+            list.length > 0 && (
+              <div key={label} className="chat-group">
+                <div className="chat-group-label">{label === 'Pinned' ? 'Channels' : 'Direct messages'}</div>
+                <ul className="chat-thread-items">
+                  {list.map(t => {
+                    const isActive = t.id === selectedId
+                    const unread = Number(t.unread_count || 0)
+                    return (
+                      <li key={t.id}>
+                        <button
+                          className={`chat-thread-item ${isActive ? 'is-active' : ''} ${unread > 0 ? 'has-unread' : ''}`}
+                          type="button"
+                          onClick={() => setSelectedId(t.id)}
+                        >
+                          <div className="chat-thread-row">
+                            <span className="chat-thread-title">{chatThreadTitle(t)}</span>
+                            {unread > 0 && <span className="chat-unread-badge">{unread}</span>}
+                          </div>
+                          <span className="chat-thread-meta">
+                            {CHAT_THREAD_KIND_LABEL[t.kind] || t.kind}
+                            {t.member_count > 0 ? ` · ${t.member_count} ${t.member_count === 1 ? 'member' : 'members'}` : ''}
+                            {t.last_message_at ? ` · ${timeAgo(t.last_message_at)}` : ''}
+                          </span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )
+          ))}
+
+          {threads.length === 0 && !threadsLoading && (
+            <Empty icon={<MessageSquare size={20} />} text="No chats yet. Start a DM or apply round29 to seed channels." />
+          )}
+        </aside>
+
+        {/* Right: messages + composer */}
+        <section className="chat-panel">
+          {!selectedThread ? (
+            <div className="chat-empty-pane">
+              <MessageSquare size={28} />
+              <b>Pick a chat to view</b>
+              <p className="muted small">Channels and direct messages will appear on the left.</p>
+            </div>
+          ) : (
+            <>
+              <header className="chat-panel-head">
+                <div>
+                  <h2 className="chat-panel-title">{chatThreadTitle(selectedThread)}</h2>
+                  <p className="muted small">
+                    {CHAT_THREAD_KIND_LABEL[selectedThread.kind] || selectedThread.kind}
+                    {selectedThread.member_count > 0 ? ` · ${selectedThread.member_count} ${selectedThread.member_count === 1 ? 'member' : 'members'}` : ''}
+                  </p>
+                </div>
+                <button className="btn btn-sm" type="button" onClick={() => loadMessages(selectedId)} disabled={messagesLoading}>
+                  <Activity size={13} /> {messagesLoading ? 'Loading…' : 'Refresh'}
+                </button>
+              </header>
+
+              <div className="chat-messages">
+                {messagesLoading && messages.length === 0 && <div className="muted small">Loading…</div>}
+                {!messagesLoading && messages.length === 0 && (
+                  <div className="chat-empty-pane">
+                    <MessageSquare size={20} />
+                    <p className="muted small">No messages yet. Say hi.</p>
+                  </div>
+                )}
+                {messages.map(m => {
+                  const isMine = m.sender_id === me?.id
+                  return (
+                    <div key={m.id} className={`chat-msg ${isMine ? 'chat-msg-mine' : ''}`}>
+                      <div className="chat-msg-head">
+                        <b>{m.sender_name || 'Unknown'}</b>
+                        {m.sender_role && <span className="chat-msg-role">{displayRole(m.sender_role)}</span>}
+                        <span className="muted small">{timeAgo(m.created_at)}</span>
+                      </div>
+                      <div className="chat-msg-body">{m.body}</div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <form
+                className="chat-composer"
+                onSubmit={e => { e.preventDefault(); sendMessage() }}
+              >
+                <textarea
+                  className="input chat-composer-input"
+                  rows={2}
+                  maxLength={4000}
+                  placeholder={`Message ${chatThreadTitle(selectedThread)}…`}
+                  value={draft}
+                  onChange={e => setDraft(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault()
+                      sendMessage()
+                    }
+                  }}
+                  disabled={sending}
+                />
+                <div className="chat-composer-actions">
+                  <span className="muted small">⌘/Ctrl + Enter to send</span>
+                  <button className="btn btn-primary" type="submit" disabled={sending || !draft.trim()}>
+                    <Send size={13} /> {sending ? 'Sending…' : 'Send'}
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
+        </section>
+      </div>
+    </div>
+  )
 }
 
 // ─── MORE TAB ────────────────────────────────────────────────────────────────
