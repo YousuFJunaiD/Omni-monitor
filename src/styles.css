@@ -7380,3 +7380,171 @@ textarea {
 }
 .chat-composer-actions { display: flex; justify-content: space-between; align-items: center; }
 /* ─── End Phase 18 ───────────────────────────────────────────────────────── */
+
+/* ─── Phase 19: responsive audit safeguards ──────────────────────────────── */
+html,
+body,
+#root {
+  max-width: 100%;
+}
+
+.app-shell,
+.app-main,
+.tab-home,
+.tab-tasks,
+.tab-chat,
+.tab-ideas,
+.tab-team,
+.tab-more,
+.panel,
+.templates-panel,
+.template-card,
+.report-preview-card,
+.admin-stuck-block,
+.chat-panel,
+.chat-thread-list {
+  min-width: 0;
+}
+
+.page-header,
+.section-head,
+.report-preview-head,
+.chat-panel-head,
+.admin-head,
+.admin-audit-head {
+  min-width: 0;
+}
+
+.page-header > *,
+.section-head > *,
+.report-preview-head > *,
+.chat-panel-head > *,
+.admin-head > *,
+.admin-audit-head > * {
+  min-width: 0;
+}
+
+.btn,
+.icon-btn,
+.task-view-tab,
+.chat-thread-item,
+.chat-dm-candidate {
+  touch-action: manipulation;
+}
+
+.report-preview-actions .btn,
+.report-actions .btn,
+.admin-audit-actions .btn,
+.chat-composer-actions .btn {
+  min-height: 40px;
+}
+
+.report-preview-title,
+.report-preview-eyebrow,
+.chat-panel-title,
+.chat-thread-title,
+.chat-thread-meta,
+.admin-audit-body,
+.admin-stuck-task {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 800px) {
+  .chat-layout {
+    gap: 12px;
+    min-height: 0;
+  }
+
+  .chat-thread-list {
+    max-height: 34dvh;
+    min-height: 0;
+  }
+
+  .chat-panel {
+    max-height: none;
+    min-height: min(68dvh, 620px);
+  }
+
+  .chat-messages {
+    min-height: 240px;
+  }
+}
+
+@media (max-width: 600px) {
+  .templates-panel-head,
+  .report-preview-head,
+  .admin-head,
+  .admin-audit-head,
+  .chat-panel-head,
+  .chat-composer-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .template-grid,
+  .report-preview-metrics,
+  .admin-health-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-actions,
+  .report-preview-actions,
+  .admin-audit-actions {
+    width: 100%;
+  }
+
+  .report-actions .btn,
+  .report-preview-actions .btn,
+  .admin-audit-actions .btn,
+  .admin-audit-actions .input-sm {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .chat-msg {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 430px) {
+  .task-view-tab {
+    max-width: 82vw;
+  }
+
+  .task-view-tab span,
+  .template-card-title b,
+  .report-preview-title {
+    white-space: normal;
+  }
+
+  .modal,
+  .task-detail-panel {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .assignee-check-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 340px) {
+  .page-header,
+  .panel,
+  .templates-panel,
+  .task-section,
+  .team-profile-panel,
+  .ranking-panel,
+  .report-preview-card,
+  .chat-thread-list,
+  .chat-panel {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .btn {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+/* ─── End Phase 19 responsive audit safeguards ───────────────────────────── */
