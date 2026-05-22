@@ -156,6 +156,11 @@ function displayRole(role) {
   return role ? String(role).replace(/_/g, ' ').toLowerCase().replace(/^\w/, char => char.toUpperCase()) : ''
 }
 
+function firstUsableName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
+  return parts.find(part => part.replace(/[^a-z0-9]/gi, '').length > 1) || parts[0] || ''
+}
+
 function displayStatusBadge(status) {
   const map = {
     TODO: 'todo',
@@ -466,7 +471,7 @@ function NavBar({ tab, setTab, me, unreadNotif, onLogout, aiMode = 'checking' })
           <span className="ai-mode-text">{aiModeLabel(aiMode)}</span>
         </span>
         <div className="user-info">
-          <span className="user-name">{me?.name?.split(' ')[0]}</span>
+          <span className="user-name">{firstUsableName(me?.name)}</span>
           <span className="user-role">{displayRole(me?.role)}</span>
         </div>
         <button className="icon-btn" type="button" onClick={onLogout} title="Logout" aria-label="Logout"><LogOut size={16} /></button>
@@ -1110,7 +1115,7 @@ function CeoHomeView({ dash, token, me, reload, notify, aiMode = 'checking' }) {
       <div className="page-header">
         <div>
           <p className="page-eyebrow">Command Center</p>
-          <h1 className="page-title">Good {getTimeGreeting()}, {me?.name?.split(' ')[0]}.</h1>
+          <h1 className="page-title">Good {getTimeGreeting()}, {firstUsableName(me?.name)}.</h1>
           <p className="page-subtitle">{me?.title} · {displayRole(me?.role)} · Company-wide view</p>
         </div>
         <div className="page-header-actions">
@@ -1377,7 +1382,7 @@ function FounderHomeView({ dash, token, me, reload, notify, aiMode = 'checking' 
       <div className="page-header">
         <div>
           <p className="page-eyebrow">{myDept ? `${myDept.charAt(0).toUpperCase()}${myDept.slice(1)} team` : 'Team workspace'}</p>
-          <h1 className="page-title">Good {getTimeGreeting()}, {me?.name?.split(' ')[0]}.</h1>
+          <h1 className="page-title">Good {getTimeGreeting()}, {firstUsableName(me?.name)}.</h1>
           <p className="page-subtitle">{me?.title} · {displayRole(me?.role)}{myDept ? ` · ${myDept} department` : ''}</p>
         </div>
       </div>
@@ -1564,7 +1569,7 @@ function InternHomeView({ dash, token, me, reload, notify, aiMode = 'checking' }
       <div className="page-header">
         <div>
           <p className="page-eyebrow">Today</p>
-          <h1 className="page-title">Hi {me?.name?.split(' ')[0]}.</h1>
+          <h1 className="page-title">Hi {firstUsableName(me?.name)}.</h1>
           <p className="page-subtitle">{me?.title} · {displayRole(me?.role)}</p>
         </div>
         <button className={`btn btn-ghost btn-sm focus-toggle ${focusMode ? 'is-on' : ''}`} type="button" onClick={() => setFocusMode(v => !v)}>
