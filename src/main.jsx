@@ -57,7 +57,7 @@ const emptyDash = {
 const ideaStatuses = ['PENDING', 'UNDER_REVIEW', 'APPROVED', 'IN_PROGRESS', 'REJECTED']
 const taskStatuses = ['ALL', 'TODO', 'IN_PROGRESS', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'CHANGES_REQUESTED', 'RESUBMITTED', 'REJECTED', 'DONE', 'BLOCKED']
 const FRONTEND_INTERN_USERNAMES = new Set(['aarzoo.anna', 'ruqiya.n', 'mazen.ahmed', 'polok.k', 'syed.firas', 'lotifur.r'])
-const BACKEND_INTERN_USERNAMES = new Set(['akshaya.r', 'ismail.q', 'mazharuddin.s'])
+const BACKEND_INTERN_USERNAMES = new Set(['akshaya.r', 'ismail.q', 'mazharuddin.s', 'nihan.anoop', 'tran.tai', 'ehan.shareef'])
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
